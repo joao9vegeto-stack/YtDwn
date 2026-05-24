@@ -1,0 +1,8 @@
+
+{
+  "$schema": "https://raw.githubusercontent.com/northflank/northflank-cli/main/northflank.schema.json",
+  "name": "yt-downloader",
+  "build": {
+    "dockerfile": "Dockerfile"
+  }
+}
