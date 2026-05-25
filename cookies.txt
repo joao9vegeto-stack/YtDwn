@@ -1,0 +1,9 @@
+cookies
+# Netscape HTTP Cookie File
+.www.youtube.com	TRUE	/	FALSE	0	SIDCC	AKEyXzVFQBbXEY1fHTQMigbau_WTznDtT4_ixnxXjt-CkpjI4CzRG_qVM2n1k6yYiRYEVJNP
+.www.youtube.com	TRUE	/	FALSE	0	PREF	f6
+.www.youtube.com	TRUE	/	FALSE	0	APISID	pl3zWP_2CR81Pf-M/AvQy904VB7XVRQ0n7
+.www.youtube.com	TRUE	/	FALSE	0	SAPISID	FHjCH5oRPC-5L8k1/AhI2HANN9-d0qmSHq
+.www.youtube.com	TRUE	/	FALSE	0	SID	g.a000-AjNCbARUGRD1G_l0_d6d_3DWGj-Xv6H5zH_sfMCJa0QMBjcCfiTcHDxNPnDSnkABEg4MgACgYKAbgSAQ8SFQHGX2Mij7oTmKRqoYHsyQoaibfTXxoVAUF8yKqA1onGAlhgU4NDIF_dnSiA0076
+.www.youtube.com	TRUE	/	FALSE	0	__Secure-1PAPISID	FHjCH5oRPC-5L8k1/AhI2HANN9-d0qmSHq
+.www.youtube.com	TRUE	/	FALSE	0	__Secure-3PAPISID	FHjCH5oRPC-5L8k1/AhI2HANN9-d0qmSHq
