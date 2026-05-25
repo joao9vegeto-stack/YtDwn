@@ -1,26 +1,16 @@
-FROM node:20-bullseye
+FROM node:20
 
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    python3 \
-    python3-pip \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install yt-dlp
-
-RUN corepack enable
+RUN apt-get update && apt-get install -y ffmpeg curl python3
 
 WORKDIR /app
 
 COPY . .
 
-RUN pnpm install
-RUN pnpm -r --if-present build
+RUN npm install
 
-ENV NODE_ENV=production
-ENV PORT=3000
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
+-o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
 
 EXPOSE 3000
 
-CMD ["pnpm", "--filter", "@workspace/api-server", "start"]
+CMD ["node", "server.cjs"]
