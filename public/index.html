@@ -1,0 +1,38 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YouTube Premium Downloader</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="container">
+    <h1>YouTube Downloader</h1>
+
+    <input id="url" placeholder="Cole URL do YouTube"/>
+
+    <select id="quality">
+      <option value="bv*[height<=1080]+ba/b">1080p H264 • CFR30</option>
+      <option value="bv*[height<=720]+ba/b">720p H264 • CFR30</option>
+    </select>
+
+    <button onclick="downloadVideo()">Baixar e Converter</button>
+
+    <div class="card">
+      <h3>Conversão</h3>
+      <ul>
+        <li>Codec: H264 AVC</li>
+        <li>FPS: CFR 30</li>
+        <li>Áudio: AAC</li>
+        <li>Compatível iPhone/TikTok</li>
+      </ul>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
