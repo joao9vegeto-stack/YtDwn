@@ -106,6 +106,10 @@ app.post("/api/download", async(req,res)=>{
       `bestvideo[height<=${quality}]+bestaudio/best`,
       "--merge-output-format",
       "mp4",
+      "--recode-video",
+      "mp4",
+      "--postprocessor-args",
+      "ffmpeg:-c:v libx264 -c:a aac -b:a 192k",
       "-o",
       output
     ]);
