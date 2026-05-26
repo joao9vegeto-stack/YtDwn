@@ -505,27 +505,32 @@ function updateCard(card, data) {
     bar.style.width = (data.percent || 0) + "%";
   }
 
-  if (data.stage === "finished") {
+    if (data.stage === "finished") {
     status.innerHTML = `
       <span class="done">Conversão finalizada com sucesso</span>
     `;
+
     bar.style.width = "100%";
 
     actions.innerHTML = `
-      <button class="download-btn" type="button">Baixar MP4</button>
+      <button class="download-btn" type="button">
+        Baixar MP4
+      </button>
     `;
 
-const btn = actions.querySelector("button");
+    const btn = actions.querySelector("button");
 
-btn.onclick = () => {
-  const a = document.createElement("a");
-  a.href = data.download;
-  a.download = "";
-  a.target = "_blank";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-};
+    btn.onclick = () => {
+      const a = document.createElement("a");
+      a.href = data.download;
+      a.download = "";
+      a.target = "_blank";
+
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+  }
 
   if (data.stage === "error") {
     status.innerHTML = `
