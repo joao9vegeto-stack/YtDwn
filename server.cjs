@@ -104,16 +104,31 @@ function waitForFile(filePath, timeoutMs = 60000, intervalMs = 250) {
   });
 }
 
-function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title, thumbnail }) {
+function runFfmpegTranscode({
+  inputPath,
+  outputPath,
+  durationSeconds,
+  id,
+  title,
+  thumbnail
+}) {
   return new Promise((resolve, reject) => {
     const args = [
       "-y",
       "-i", inputPath,
 
-      // vídeo já está em H264 no seu caso, então copia para ficar muito mais rápido
-      "-c:v", "copy",
+      // Reencode total para garantir H264/CFR/GOP curto
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "23",
+      "-pix_fmt", "yuv420p",
+      "-r", "30",
+      "-fps_mode", "cfr",
+      "-g", "30",
+      "-keyint_min", "30",
+      "-sc_threshold", "0",
 
-      // converte apenas o áudio para AAC
+      // Áudio em AAC
       "-c:a", "aac",
       "-b:a", "192k",
 
@@ -128,20 +143,22 @@ function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title,
     });
 
     let latestPercent = 0;
-    let stderrBuffer = "";
+    let stdoutBuffer = "";
 
     ffmpeg.stdout.on("data", (chunk) => {
-      const text = String(chunk || "");
-      const lines = text.split(/\r?\n/);
+      stdoutBuffer += String(chunk || "");
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || "";
 
-        if (line.startsWith("out_time_us=") && durationSeconds > 0) {
-          const outTimeUs = Number(line.replace("out_time_us=", "").trim());
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
 
-          if (Number.isFinite(outTimeUs)) {
-            const seconds = outTimeUs / 1000000;
+        if ((line.startsWith("out_time_us=") || line.startsWith("out_time_ms=")) && durationSeconds > 0) {
+          const value = Number(line.split("=").slice(1).join("=").trim());
+          if (Number.isFinite(value)) {
+            const seconds = value / 1000000;
             const percent = Math.min(
               99,
               Math.max(latestPercent, Math.floor((seconds / durationSeconds) * 100))
@@ -177,35 +194,7 @@ function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title,
     });
 
     ffmpeg.stderr.on("data", (chunk) => {
-      stderrBuffer += String(chunk || "");
-      const lines = stderrBuffer.split(/\r?\n/);
-      stderrBuffer = lines.pop() || "";
-
-      for (const line of lines) {
-        console.log(line);
-
-        const match = line.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-        if (match && durationSeconds > 0) {
-          const h = Number(match[1]);
-          const m = Number(match[2]);
-          const s = Number(match[3]);
-          const seconds = h * 3600 + m * 60 + s;
-          const percent = Math.min(99, Math.floor((seconds / durationSeconds) * 100));
-
-          if (percent > latestPercent) {
-            latestPercent = percent;
-            emitProgress({
-              id,
-              title,
-              thumbnail,
-              stage: "converting",
-              percent,
-              speed: "FFmpeg",
-              eta: "--"
-            });
-          }
-        }
-      }
+      console.log(String(chunk || ""));
     });
 
     ffmpeg.on("error", reject);
