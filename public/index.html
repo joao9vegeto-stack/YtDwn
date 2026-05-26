@@ -119,23 +119,6 @@ async function startDownload() {
     return;
   }
 
-  const clientId = "job_" + Date.now();
-
-  const card = createDownloadCard({
-    id: clientId,
-    title: "Preparando download...",
-    thumbnail: ""
-  });
-
-  downloads[clientId] = card;
-
-  updateCard(card, {
-    stage: "starting",
-    percent: 0,
-    speed: "Conectando...",
-    eta: "--"
-  });
-
   setButtonState(true, "Processando...");
 
   try {
@@ -146,40 +129,23 @@ async function startDownload() {
       },
       body: JSON.stringify({
         url,
-        quality,
-        clientId
+        quality
       })
     });
 
     const data = await req.json();
 
-    if (!req.ok) {
-      updateCard(card, {
-        stage: "error",
-        message: data.error || "Erro ao iniciar download"
-      });
+    console.log("API:", data);
+
+    if (!req.ok || data.error) {
+      alert(data.error || "Erro ao iniciar download");
       setButtonState(false, "Baixar e Converter");
       return;
     }
 
-    if (data.download) {
-      updateCard(card, {
-        id: data.id || clientId,
-        title: data.title || "Vídeo",
-        thumbnail: data.thumbnail || "",
-        stage: "finished",
-        percent: 100,
-        download: data.download
-      });
-    }
   } catch (err) {
     console.error(err);
-
-    updateCard(card, {
-      stage: "error",
-      message: "Erro ao iniciar download"
-    });
-
+    alert("Erro ao iniciar download");
     setButtonState(false, "Baixar e Converter");
   }
 }
@@ -187,7 +153,6 @@ async function startDownload() {
 function createDownloadCard(data) {
   const container = document.createElement("div");
   container.className = "download-item";
-  container.dataset.jobId = data.id || "";
 
   container.innerHTML = `
 <div class="thumb">
@@ -248,6 +213,14 @@ function updateCard(card, data) {
       ${data.speed || "0MiB/s"} • ETA ${data.eta || "--"}
     `;
     bar.style.width = (data.percent || 0) + "%";
+  }
+
+  if (data.stage === "merging") {
+    status.innerHTML = `
+      Mesclando formatos...<br>
+      Finalizando o MP4
+    `;
+    bar.style.width = "100%";
   }
 
   if (data.stage === "converting") {
