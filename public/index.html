@@ -104,7 +104,29 @@ async function startDownload() {
     return;
   }
 
-  try {
+  if (!url) {
+  alert("Cole um link");
+  return;
+}
+
+const fakeId = "tmp_" + Date.now();
+
+const fakeCard = createDownloadCard({
+  id: fakeId,
+  title: "Preparando download...",
+  thumbnail: ""
+});
+
+downloads[fakeId] = fakeCard;
+
+updateCard(fakeCard, {
+  stage: "downloading",
+  percent: 0,
+  speed: "Conectando...",
+  eta: "--"
+});
+
+try {
 
     const req = await fetch("/api/download", {
       method: "POST",
@@ -126,11 +148,13 @@ async function startDownload() {
 
     }
 
-  } catch (err) {
+} catch (err) {
+  console.error(err);
 
-    console.error(err);
-
-
+  updateCard(fakeCard, {
+    stage: "error",
+    message: "Erro ao iniciar download"
+  });
 }
 
 function createDownloadCard(data) {
