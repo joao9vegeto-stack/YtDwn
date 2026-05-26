@@ -231,3 +231,25 @@ input::placeholder{
   }
 
 }
+
+.downloads-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:20px;
+}
+
+#clear-history{
+    background:#1a1a1a;
+    color:white;
+    border:none;
+    padding:10px 16px;
+    border-radius:12px;
+    font-weight:700;
+    cursor:pointer;
+    transition:0.2s;
+}
+
+#clear-history:hover{
+    opacity:0.8;
+}
