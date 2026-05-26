@@ -104,23 +104,6 @@ async function startDownload() {
     return;
   }
 
-  const fakeId = "tmp_" + Date.now();
-
-  const fakeCard = createDownloadCard({
-    id: fakeId,
-    title: "Preparando download...",
-    thumbnail: ""
-  });
-
-  downloads[fakeId] = fakeCard;
-
-  updateCard(fakeCard, {
-    stage: "downloading",
-    percent: 0,
-    speed: "Conectando...",
-    eta: "--"
-  });
-
   try {
 
     const req = await fetch("/api/download", {
@@ -139,11 +122,7 @@ async function startDownload() {
     console.log("API:", data);
 
     if (data.error) {
-
-      updateCard(fakeCard, {
-        stage: "error",
-        message: data.error
-      });
+  console.error(data.error);
 
     }
 
@@ -151,12 +130,6 @@ async function startDownload() {
 
     console.error(err);
 
-    updateCard(fakeCard, {
-      stage: "error",
-      message: "Erro ao iniciar download"
-    });
-
-  }
 
 }
 
