@@ -58,6 +58,16 @@ app.post("/api/download", async(req,res)=>{
 
   const id = Date.now().toString();
 
+  io.emit("progress",{
+  id,
+  title:"Preparando download...",
+  thumbnail:"",
+  stage:"starting",
+  percent:0,
+  speed:"--",
+  eta:"--"
+});
+
   try{
 
     const info = await ytDlp.getVideoInfo(url);
@@ -90,19 +100,35 @@ app.post("/api/download", async(req,res)=>{
       output
     ]);
 
-    yt.on("progress",(progress)=>{
+yt.on("ytDlpEvent", (eventType, eventData) => {
 
-      io.emit("progress",{
-        id,
-        title,
-        thumbnail,
-        stage:"downloading",
-        percent:Math.floor(progress.percent || 0),
-        speed:progress.currentSpeed,
-        eta:progress.eta
-      });
+  const text = eventData.toString();
 
+  console.log(text);
+
+  const match = text.match(
+    /(\d+(?:\.\d+)?)%\s+of.*?at\s+([^\s]+).*?ETA\s+([0-9:]+)/
+  );
+
+  if(match){
+
+    const percent = parseFloat(match[1]);
+    const speed = match[2];
+    const eta = match[3];
+
+    io.emit("progress",{
+      id,
+      title,
+      thumbnail,
+      stage:"downloading",
+      percent,
+      speed,
+      eta
     });
+
+  }
+
+});
 
     yt.on("close",()=>{
 
