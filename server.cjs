@@ -104,6 +104,25 @@ function waitForFile(filePath, timeoutMs = 60000, intervalMs = 250) {
   });
 }
 
+function parseTimeToSeconds(line) {
+  const match = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    !Number.isFinite(seconds)
+  ) {
+    return null;
+  }
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
 function runFfmpegTranscode({
   inputPath,
   outputPath,
@@ -117,90 +136,84 @@ function runFfmpegTranscode({
       "-y",
       "-i", inputPath,
 
-      // Reencode total para garantir H264/CFR/GOP curto
       "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-crf", "23",
+      "-preset", "ultrafast",
+      "-tune", "zerolatency",
+      "-profile:v", "baseline",
+      "-level", "4.2",
       "-pix_fmt", "yuv420p",
       "-r", "30",
       "-fps_mode", "cfr",
-      "-g", "30",
-      "-keyint_min", "30",
+      "-g", "60",
+      "-keyint_min", "31",
       "-sc_threshold", "0",
+      "-bf", "0",
 
-      // Áudio em AAC
       "-c:a", "aac",
       "-b:a", "192k",
+      "-ar", "44100",
+      "-ac", "2",
 
       "-movflags", "+faststart",
-      "-progress", "pipe:1",
-      "-nostats",
+      "-stats_period", "0.5",
       outputPath
     ];
 
     const ffmpeg = spawn("ffmpeg", args, {
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "ignore", "pipe"]
     });
 
     let latestPercent = 0;
-    let stdoutBuffer = "";
+    let stderrBuffer = "";
 
-    ffmpeg.stdout.on("data", (chunk) => {
-      stdoutBuffer += String(chunk || "");
+    ffmpeg.stderr.on("data", (chunk) => {
+      stderrBuffer += String(chunk || "");
 
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() || "";
+      const lines = stderrBuffer.split(/\r?\n/);
+      stderrBuffer = lines.pop() || "";
 
       for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line) continue;
 
-        if ((line.startsWith("out_time_us=") || line.startsWith("out_time_ms=")) && durationSeconds > 0) {
-          const value = Number(line.split("=").slice(1).join("=").trim());
-          if (Number.isFinite(value)) {
-            const seconds = value / 1000000;
-            const percent = Math.min(
-              99,
-              Math.max(latestPercent, Math.floor((seconds / durationSeconds) * 100))
-            );
+        console.log(line);
 
-            if (percent > latestPercent) {
-              latestPercent = percent;
-              emitProgress({
-                id,
-                title,
-                thumbnail,
-                stage: "converting",
-                percent,
-                speed: "FFmpeg",
-                eta: "--"
-              });
-            }
+        const currentSeconds = parseTimeToSeconds(line);
+        if (currentSeconds !== null && durationSeconds > 0) {
+          const percent = Math.min(
+            99,
+            Math.floor((currentSeconds / durationSeconds) * 100)
+          );
+
+          if (percent > latestPercent) {
+            latestPercent = percent;
+            emitProgress({
+              id,
+              title,
+              thumbnail,
+              stage: "converting",
+              percent,
+              speed: "FFmpeg",
+              eta: "--"
+            });
           }
         }
-
-        if (line === "progress=end") {
-          emitProgress({
-            id,
-            title,
-            thumbnail,
-            stage: "converting",
-            percent: 100,
-            speed: "FFmpeg",
-            eta: "--"
-          });
-        }
       }
-    });
-
-    ffmpeg.stderr.on("data", (chunk) => {
-      console.log(String(chunk || ""));
     });
 
     ffmpeg.on("error", reject);
 
     ffmpeg.on("close", (code) => {
       if (code === 0) {
+        emitProgress({
+          id,
+          title,
+          thumbnail,
+          stage: "converting",
+          percent: 100,
+          speed: "FFmpeg",
+          eta: "--"
+        });
         resolve();
       } else {
         reject(new Error(`FFmpeg terminou com código ${code}`));
@@ -301,7 +314,6 @@ async function processDownload({ id, url, quality }) {
   });
 
   await yt.promise;
-
   await waitForFile(mergedPath, 60000);
 
   emitProgress({
