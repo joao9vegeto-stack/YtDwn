@@ -1,38 +1,127 @@
-
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>YouTube Premium Downloader</title>
+  <title>YT Downloader</title>
+
   <link rel="stylesheet" href="style.css"/>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
+
 <body>
-  <div class="container">
-    <h1>YouTube Downloader</h1>
 
-    <input id="url" placeholder="Cole URL do YouTube"/>
+  <div class="bg-glow"></div>
 
-    <select id="quality">
-      <option value="bv*[height<=1080]+ba/b">1080p H264 • CFR30</option>
-      <option value="bv*[height<=720]+ba/b">720p H264 • CFR30</option>
-    </select>
+  <div class="app">
 
-    <button onclick="downloadVideo()">Baixar e Converter</button>
+    <header class="topbar">
+      <div class="logo-wrap">
+        <div class="logo">
+          ▶
+        </div>
 
-    <div class="card">
-      <h3>Conversão</h3>
-      <ul>
-        <li>Codec: H264 AVC</li>
-        <li>FPS: CFR 30</li>
-        <li>Áudio: AAC</li>
-        <li>Compatível iPhone/TikTok</li>
-      </ul>
+        <div>
+          <h1>YT Downloader</h1>
+<p>H264 • AAC • Adobe After Effects Ready</p>
+        </div>
+      </div>
+
+      <div class="cookie-badge">
+        <span class="dot"></span>
+        Cookies
+      </div>
+    </header>
+
+    <section class="hero-card">
+
+      <div class="input-group">
+        <input
+          id="url"
+          type="text"
+          placeholder="Cole URL do YouTube"
+        >
+
+        <button class="search-btn" onclick="downloadVideo()">
+          Baixar
+        </button>
+      </div>
+
+      <div class="quality-wrap">
+
+        <label>Formato de saída</label>
+
+        <select id="quality">
+          <option value="bv*[height<=1080]+ba/b">
+            1080p • H264 • AAC
+          </option>
+
+          <option value="bv*[height<=720]+ba/b">
+            720p • H264 • AAC
+          </option>
+        </select>
+
+      </div>
+
+    </section>
+
+    <section class="preview-card">
+
+      <div class="preview-image-wrap">
+        <img
+          src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=1200&auto=format&fit=crop"
+          id="thumb"
+        >
+      </div>
+
+      <div class="preview-content">
+
+      <h2 id="video-title">
+       Conversão otimizada para Adobe After Effects
+      </h2>
+
+        <div class="feature-box">
+
+        <div class="feature-title">
+         Pipeline profissional para After Effects
+        </div>
+
+          <div class="feature-grid">
+
+            <div class="feature-item">✅ H264 AVC</div>
+            <div class="feature-item">✅ AAC</div>
+            <div class="feature-item">✅ CFR 30fps</div>
+            <div class="feature-item">✅ yuv420p</div>
+            <div class="feature-item">✅ Adobe After Effects</div>
+            <div class="feature-item">✅ Edição Profissional</div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <section class="download-card">
+
+    <div class="download-header">
+     <span>MP4 — H264/AAC • AFTER EFFECTS READY</span>
     </div>
 
-    <div id="status"></div>
+      <button class="download-main-btn" onclick="downloadVideo()">
+        ⬇ Baixar Vídeo MP4
+      </button>
+
+    </section>
+
+    <section id="status" class="status-card"></section>
+
   </div>
 
   <script src="app.js"></script>
+
 </body>
 </html>
