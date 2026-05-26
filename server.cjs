@@ -28,6 +28,10 @@ app.use(express.json());
 
 app.use(express.static(path.join(__dirname, "public")));
 
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
 const downloadsDir = path.join(__dirname,"downloads");
 
 if(!fs.existsSync(downloadsDir)){
