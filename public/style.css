@@ -1,52 +1,257 @@
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+}
 
 body{
-  background:#080808;
+  background:#050505;
   color:white;
-  font-family:Arial;
-  margin:0;
-  padding:20px;
+  font-family:'Inter',sans-serif;
+  min-height:100vh;
+  overflow-x:hidden;
 }
 
-.container{
-  max-width:500px;
+.bg-glow{
+  position:fixed;
+  width:500px;
+  height:500px;
+  background:#ff0037;
+  filter:blur(180px);
+  opacity:.12;
+  top:-200px;
+  left:-150px;
+  z-index:0;
+}
+
+.app{
+  position:relative;
+  z-index:2;
+  width:100%;
+  max-width:760px;
   margin:auto;
+  padding:22px;
 }
 
-h1{
-  color:#ff1f3d;
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:28px;
 }
 
-input,select{
-  width:100%;
-  padding:16px;
-  margin-top:12px;
-  border:none;
-  border-radius:16px;
-  background:#1a1a1a;
-  color:white;
+.logo-wrap{
+  display:flex;
+  align-items:center;
+  gap:14px;
 }
 
-button{
-  width:100%;
-  padding:18px;
-  margin-top:18px;
-  border:none;
+.logo{
+  width:54px;
+  height:54px;
   border-radius:18px;
-  background:#ff002b;
-  color:white;
-  font-size:20px;
+  background:linear-gradient(135deg,#ff0037,#ff335f);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
   font-weight:bold;
 }
 
-.card{
-  margin-top:24px;
-  padding:20px;
-  border-radius:20px;
-  background:#151515;
-  border:1px solid #292929;
+.topbar h1{
+  font-size:30px;
+  font-weight:800;
 }
 
-#status{
+.topbar p{
+  color:#8f8f8f;
+  margin-top:4px;
+  font-size:13px;
+}
+
+.cookie-badge{
+  background:#121212;
+  border:1px solid #2b2b2b;
+  padding:10px 14px;
+  border-radius:16px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:#d5d5d5;
+  font-size:14px;
+}
+
+.dot{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#00ff88;
+}
+
+.hero-card,
+.preview-card,
+.download-card,
+.status-card{
+  background:#101010;
+  border:1px solid #222;
+  border-radius:28px;
+  padding:22px;
+  margin-bottom:22px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.02);
+}
+
+.input-group{
+  display:flex;
+  gap:14px;
+}
+
+input{
+  flex:1;
+  height:64px;
+  background:#171717;
+  border:none;
+  border-radius:20px;
+  padding:0 22px;
+  color:white;
+  font-size:17px;
+  outline:none;
+}
+
+input::placeholder{
+  color:#777;
+}
+
+.search-btn{
+  min-width:160px;
+  border:none;
+  border-radius:20px;
+  background:linear-gradient(135deg,#ff0037,#ff335f);
+  color:white;
+  font-size:18px;
+  font-weight:700;
+}
+
+.quality-wrap{
   margin-top:20px;
+}
+
+.quality-wrap label{
+  display:block;
+  margin-bottom:12px;
+  color:#9d9d9d;
+  font-size:14px;
+}
+
+select{
+  width:100%;
+  height:64px;
+  background:#171717;
+  border:none;
+  border-radius:20px;
+  padding:0 20px;
+  color:white;
+  font-size:16px;
+  outline:none;
+}
+
+.preview-image-wrap{
+  width:100%;
+  border-radius:24px;
+  overflow:hidden;
+  margin-bottom:20px;
+}
+
+.preview-image-wrap img{
+  width:100%;
+  display:block;
+}
+
+.preview-content h2{
+  font-size:30px;
+  line-height:1.2;
+  margin-bottom:22px;
+}
+
+.feature-box{
+  background:#0c0c0c;
+  border:1px solid #252525;
+  border-radius:22px;
+  padding:20px;
+}
+
+.feature-title{
   color:#00ff88;
+  font-weight:800;
+  margin-bottom:18px;
+  font-size:24px;
+}
+
+.feature-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+}
+
+.feature-item{
+  color:#d5d5d5;
+  font-size:15px;
+}
+
+.download-header{
+  margin-bottom:18px;
+  color:#9f9f9f;
+  font-weight:600;
+}
+
+.download-main-btn{
+  width:100%;
+  height:78px;
+  border:none;
+  border-radius:24px;
+  background:linear-gradient(135deg,#15c95a,#1eff75);
+  color:white;
+  font-size:28px;
+  font-weight:800;
+}
+
+.status-card{
+  color:#00ff88;
+  line-height:1.7;
+  font-size:17px;
+}
+
+.status-card a{
+  color:#ff335f;
+  font-weight:700;
+}
+
+button{
+  cursor:pointer;
+}
+
+@media(max-width:700px){
+
+  .topbar{
+    flex-direction:column;
+    align-items:flex-start;
+    gap:18px;
+  }
+
+  .input-group{
+    flex-direction:column;
+  }
+
+  .search-btn{
+    width:100%;
+    height:64px;
+  }
+
+  .preview-content h2{
+    font-size:24px;
+  }
+
+  .feature-grid{
+    grid-template-columns:1fr;
+  }
+
 }
