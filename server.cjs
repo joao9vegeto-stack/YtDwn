@@ -11,6 +11,7 @@ const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: { origin: "*" }
 });
@@ -22,18 +23,20 @@ app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
 app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
 const downloadsDir = path.join(__dirname, "downloads");
+
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir, { recursive: true });
 }
 
 app.use("/downloads", express.static(downloadsDir));
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 app.get("/health", (req, res) => {
   res.json({ status: "online" });
@@ -48,138 +51,28 @@ function emitProgress(payload) {
 function safeRemove(filePath) {
   try {
     if (fs.existsSync(filePath)) {
-      fs.rmSync(filePath, { force: true });
+      fs.unlinkSync(filePath);
     }
   } catch (err) {
-    console.error("Erro ao remover arquivo:", err);
+    console.error(err);
   }
 }
 
-function waitForFile(filePath, timeoutMs = 60000, intervalMs = 250) {
+function waitForFile(filePath, timeout = 30000) {
   return new Promise((resolve, reject) => {
-    const started = Date.now();
+    const start = Date.now();
 
-    const tick = () => {
-      if (fs.existsSync(filePath)) return resolve(true);
+    const timer = setInterval(() => {
+      if (fs.existsSync(filePath)) {
+        clearInterval(timer);
+        return resolve(true);
+      }
 
-      if (Date.now() - started >= timeoutMs) {
+      if (Date.now() - start > timeout) {
+        clearInterval(timer);
         return reject(new Error("Arquivo final não encontrado"));
       }
-
-      setTimeout(tick, intervalMs);
-    };
-
-    tick();
-  });
-}
-
-function parseDurationToSeconds(duration) {
-  const n = Number(duration || 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseProgressSeconds(line) {
-  const match = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  const s = Number(match[3]);
-  if (![h, m, s].every(Number.isFinite)) return null;
-
-  return h * 3600 + m * 60 + s;
-}
-
-function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title, thumbnail }) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "-y",
-      "-i", inputPath,
-
-      // Perfil igual ao arquivo final “bom”
-      "-c:v", "libx264",
-      "-preset", "ultrafast",
-      "-tune", "zerolatency",
-      "-profile:v", "baseline",
-      "-level", "4.2",
-      "-pix_fmt", "yuv420p",
-      "-r", "30",
-      "-fps_mode", "cfr",
-      "-g", "60",
-      "-keyint_min", "31",
-      "-sc_threshold", "0",
-      "-bf", "0",
-
-      "-c:a", "aac",
-      "-b:a", "192k",
-      "-ar", "44100",
-      "-ac", "2",
-
-      "-movflags", "+faststart",
-      "-progress", "pipe:1",
-      "-nostats",
-      outputPath
-    ];
-
-    const ffmpeg = spawn("ffmpeg", args, {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    let latestPercent = 0;
-    let stdoutBuffer = "";
-
-    ffmpeg.stdout.on("data", (chunk) => {
-      stdoutBuffer += String(chunk || "");
-
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() || "";
-
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line) continue;
-
-        const currentSeconds = parseProgressSeconds(line);
-        if (currentSeconds !== null && durationSeconds > 0) {
-          const percent = Math.min(99, Math.floor((currentSeconds / durationSeconds) * 100));
-          if (percent > latestPercent) {
-            latestPercent = percent;
-            emitProgress({
-              id,
-              title,
-              thumbnail,
-              stage: "converting",
-              percent,
-              speed: "FFmpeg",
-              eta: "--"
-            });
-          }
-        }
-      }
-    });
-
-    ffmpeg.stderr.on("data", (chunk) => {
-      const text = String(chunk || "");
-      console.log(text);
-    });
-
-    ffmpeg.on("error", reject);
-
-    ffmpeg.on("close", (code) => {
-      if (code === 0) {
-        emitProgress({
-          id,
-          title,
-          thumbnail,
-          stage: "converting",
-          percent: 100,
-          speed: "FFmpeg",
-          eta: "--"
-        });
-        resolve();
-      } else {
-        reject(new Error(`FFmpeg terminou com código ${code}`));
-      }
-    });
+    }, 300);
   });
 }
 
@@ -193,22 +86,10 @@ async function processDownload({ id, url, quality }) {
       ? info.thumbnails[info.thumbnails.length - 1].url
       : "");
 
-  const durationSeconds = parseDurationToSeconds(info.duration);
-
-  const sourcePath = path.join(downloadsDir, `${id}.source.%(ext)s`);
+  const sourceTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
   const finalPath = path.join(downloadsDir, `${id}.mp4`);
 
   safeRemove(finalPath);
-
-  emitProgress({
-    id,
-    title: "Preparando download...",
-    thumbnail: "",
-    stage: "starting",
-    percent: 0,
-    speed: "Conectando...",
-    eta: "--"
-  });
 
   emitProgress({
     id,
@@ -223,17 +104,37 @@ async function processDownload({ id, url, quality }) {
   const yt = ytDlp.exec([
     url,
     "--no-playlist",
+
     "-f",
-    `bestvideo[height<=${quality}]+bestaudio/best`,
+    `bestvideo[height<=${quality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${quality}]+bestaudio/best`,
+
     "--merge-output-format",
     "mp4",
+
     "-o",
-    sourcePath
+    sourceTemplate
   ]);
 
-  yt.on("ytDlpEvent", (_eventType, eventData) => {
-    const text = String(eventData ?? "");
+  yt.on("ytDlpEvent", (_type, data) => {
+    const text = String(data || "");
+
     console.log(text);
+
+    const progress = text.match(
+      /(\d+(?:\.\d+)?)%\s+of.*?at\s+([^\s]+).*?ETA\s+([0-9:]+)/
+    );
+
+    if (progress) {
+      emitProgress({
+        id,
+        title,
+        thumbnail,
+        stage: "downloading",
+        percent: parseFloat(progress[1]),
+        speed: progress[2],
+        eta: progress[3]
+      });
+    }
 
     if (text.includes("Merging formats into")) {
       emitProgress({
@@ -241,73 +142,138 @@ async function processDownload({ id, url, quality }) {
         title,
         thumbnail,
         stage: "merging",
-        percent: 100,
-        speed: "Finalizando...",
-        eta: "--"
-      });
-      return;
-    }
-
-    const match = text.match(
-      /(\d+(?:\.\d+)?)%\s+of.*?at\s+([^\s]+).*?ETA\s+([0-9:]+)/
-    );
-
-    if (match) {
-      emitProgress({
-        id,
-        title,
-        thumbnail,
-        stage: "downloading",
-        percent: Number.parseFloat(match[1]),
-        speed: match[2],
-        eta: match[3]
+        percent: 100
       });
     }
-  });
-
-  yt.on("error", (err) => {
-    console.error("yt-dlp error:", err);
   });
 
   await yt.promise;
 
-  // yt-dlp pode gerar .mp4, .mkv ou .webm; achamos o arquivo real
-  const sourceBase = path.basename(sourcePath).replace(/\.%\(ext\)s$/, "");
-  const sourceFile = fs
-    .readdirSync(downloadsDir)
-    .find((f) => f.startsWith(sourceBase + "."));
+  const sourceBase = `${id}.source`;
 
-  if (!sourceFile) {
-    throw new Error("Arquivo fonte não encontrado");
+  const files = fs.readdirSync(downloadsDir);
+
+  const mergedFile = files.find(
+    (f) =>
+      f.startsWith(sourceBase) &&
+      f.endsWith(".mp4")
+  );
+
+  if (!mergedFile) {
+    throw new Error("MP4 mesclado não encontrado");
   }
 
-  const realSourcePath = path.join(downloadsDir, sourceFile);
-  await waitForFile(realSourcePath, 60000);
+  const mergedPath = path.join(downloadsDir, mergedFile);
+
+  await waitForFile(mergedPath);
 
   emitProgress({
     id,
     title,
     thumbnail,
     stage: "converting",
-    percent: 0,
-    speed: "FFmpeg",
-    eta: "--"
+    percent: 5
   });
 
-  await runFfmpegTranscode({
-    inputPath: realSourcePath,
-    outputPath: finalPath,
-    durationSeconds,
-    id,
-    title,
-    thumbnail
+  const ffmpegArgs = [
+    "-y",
+
+    "-i",
+    mergedPath,
+
+    "-c:v",
+    "libx264",
+
+    "-preset",
+    "ultrafast",
+
+    "-pix_fmt",
+    "yuv420p",
+
+    "-profile:v",
+    "high",
+
+    "-level",
+    "4.0",
+
+    "-movflags",
+    "+faststart",
+
+    "-r",
+    "30",
+
+    "-fps_mode",
+    "cfr",
+
+    "-g",
+    "60",
+
+    "-keyint_min",
+    "60",
+
+    "-sc_threshold",
+    "0",
+
+    "-c:a",
+    "aac",
+
+    "-b:a",
+    "192k",
+
+    "-ar",
+    "48000",
+
+    "-ac",
+    "2",
+
+    finalPath
+  ];
+
+  await new Promise((resolve, reject) => {
+    const ffmpeg = spawn("ffmpeg", ffmpegArgs);
+
+    ffmpeg.stderr.on("data", (data) => {
+      const line = data.toString();
+
+      console.log(line);
+
+      const match = line.match(/time=(\d+):(\d+):(\d+\.\d+)/);
+
+      if (match) {
+        const h = parseInt(match[1]);
+        const m = parseInt(match[2]);
+        const s = parseFloat(match[3]);
+
+        const current = h * 3600 + m * 60 + s;
+        const total = info.duration || 1;
+
+        let percent = Math.floor((current / total) * 100);
+
+        if (percent > 100) percent = 100;
+        if (percent < 5) percent = 5;
+
+        emitProgress({
+          id,
+          title,
+          thumbnail,
+          stage: "converting",
+          percent
+        });
+      }
+    });
+
+    ffmpeg.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error("Erro no FFmpeg"));
+      }
+    });
   });
 
-  safeRemove(realSourcePath);
+  await waitForFile(finalPath);
 
-  if (!fs.existsSync(finalPath)) {
-    throw new Error("Arquivo final não encontrado");
-  }
+  safeRemove(mergedPath);
 
   emitProgress({
     id,
@@ -319,17 +285,14 @@ async function processDownload({ id, url, quality }) {
   });
 
   return {
-    id,
-    title,
-    thumbnail,
-    download: `/downloads/${id}.mp4`
+    success: true
   };
 }
 
 app.post("/api/download", async (req, res) => {
   if (busy) {
     return res.status(429).json({
-      error: "Servidor ocupado. Aguarde o download atual terminar."
+      error: "Servidor ocupado"
     });
   }
 
@@ -341,25 +304,27 @@ app.post("/api/download", async (req, res) => {
     });
   }
 
-  const id = String(clientId || Date.now());
+  const id = clientId || `job_${Date.now()}`;
 
   busy = true;
 
-  // A UI recebe os eventos de progresso via socket.
-  // A resposta só confirma que o job começou.
   res.status(202).json({
     success: true,
     id
   });
 
-  processDownload({ id, url, quality: quality || "1080" })
+  processDownload({
+    id,
+    url,
+    quality: quality || "1080"
+  })
     .catch((err) => {
       console.error(err);
 
       emitProgress({
         id,
         stage: "error",
-        message: err?.message || "Erro ao processar vídeo"
+        message: err.message || "Erro ao processar vídeo"
       });
     })
     .finally(() => {
