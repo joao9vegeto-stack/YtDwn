@@ -57,50 +57,56 @@
 
   <div class="downloads-header">
 
-  <h2 class="downloads-title">
-    Downloads
-  </h2>
+    <h2 class="downloads-title">
+      Downloads
+    </h2>
 
-  <button onclick="clearDownloads()" class="clear-btn">
-    Limpar
-  </button>
+    <button onclick="clearDownloads()" class="clear-btn">
+      Limpar
+    </button>
 
-</div>
+  </div>
 
   <div id="downloads"></div>
 
 </div>
 
 <script>
-
 const socket = io();
-  
+
+let downloads = {};
+
+const downloadButton = document.querySelector(".search-btn");
+
+function setButtonState(isLoading, label) {
+  if (!downloadButton) return;
+  downloadButton.disabled = isLoading;
+  downloadButton.textContent = label || (isLoading ? "Processando..." : "Baixar e Converter");
+}
+
 function clearDownloads() {
   document.getElementById("downloads").innerHTML = "";
+  downloads = {};
 }
-  
-
-const downloads = {};
 
 socket.on("progress", (data) => {
-
   console.log("PROGRESS:", data);
 
   let item = downloads[data.id];
 
   if (!item) {
-
     item = createDownloadCard(data);
-
     downloads[data.id] = item;
   }
 
   updateCard(item, data);
 
+  if (data.stage === "finished" || data.stage === "error") {
+    setButtonState(false, "Baixar e Converter");
+  }
 });
 
 async function startDownload() {
-
   const url = document.getElementById("url").value.trim();
   const quality = document.getElementById("quality").value;
 
@@ -109,30 +115,30 @@ async function startDownload() {
     return;
   }
 
-  if (!url) {
-  alert("Cole um link");
-  return;
-}
+  if (downloadButton && downloadButton.disabled) {
+    return;
+  }
 
-const fakeId = "tmp_" + Date.now();
+  const clientId = "job_" + Date.now();
 
-const fakeCard = createDownloadCard({
-  id: fakeId,
-  title: "Preparando download...",
-  thumbnail: ""
-});
+  const card = createDownloadCard({
+    id: clientId,
+    title: "Preparando download...",
+    thumbnail: ""
+  });
 
-downloads[fakeId] = fakeCard;
+  downloads[clientId] = card;
 
-updateCard(fakeCard, {
-  stage: "downloading",
-  percent: 0,
-  speed: "Conectando...",
-  eta: "--"
-});
+  updateCard(card, {
+    stage: "starting",
+    percent: 0,
+    speed: "Conectando...",
+    eta: "--"
+  });
 
-try {
+  setButtonState(true, "Processando...");
 
+  try {
     const req = await fetch("/api/download", {
       method: "POST",
       headers: {
@@ -140,39 +146,52 @@ try {
       },
       body: JSON.stringify({
         url,
-        quality
+        quality,
+        clientId
       })
     });
 
     const data = await req.json();
 
-    console.log("API:", data);
-
-    if (data.error) {
-  console.error(data.error);
-
+    if (!req.ok) {
+      updateCard(card, {
+        stage: "error",
+        message: data.error || "Erro ao iniciar download"
+      });
+      setButtonState(false, "Baixar e Converter");
+      return;
     }
 
-} catch (err) {
-  console.error(err);
+    if (data.download) {
+      updateCard(card, {
+        id: data.id || clientId,
+        title: data.title || "Vídeo",
+        thumbnail: data.thumbnail || "",
+        stage: "finished",
+        percent: 100,
+        download: data.download
+      });
+    }
+  } catch (err) {
+    console.error(err);
 
-  updateCard(fakeCard, {
-    stage: "error",
-    message: "Erro ao iniciar download"
-  });
-}
+    updateCard(card, {
+      stage: "error",
+      message: "Erro ao iniciar download"
+    });
 
+    setButtonState(false, "Baixar e Converter");
+  }
 }
 
 function createDownloadCard(data) {
-
   const container = document.createElement("div");
-
   container.className = "download-item";
+  container.dataset.jobId = data.id || "";
 
-container.innerHTML = `
+  container.innerHTML = `
 <div class="thumb">
-  <img src="${data.thumbnail || ""}">
+  <img src="${data.thumbnail || ""}" alt="">
 </div>
 
 <div class="download-content">
@@ -196,56 +215,50 @@ container.innerHTML = `
 </div>
 `;
 
-document.getElementById("downloads").prepend(container);
+  document.getElementById("downloads").prepend(container);
 
   return container;
-
 }
 
 function updateCard(card, data) {
-
   const status = card.querySelector(".status-text");
   const bar = card.querySelector(".progress-bar");
   const actions = card.querySelector(".download-actions");
 
   if (data.thumbnail) {
-
     const img = card.querySelector("img");
-
     img.src = data.thumbnail;
-
   }
 
   if (data.title) {
-
     card.querySelector(".video-title").innerText = data.title;
+  }
 
+  if (data.stage === "starting") {
+    status.innerHTML = `
+      Preparando download...<br>
+      ${data.speed || "Conectando..."} • ETA ${data.eta || "--"}
+    `;
+    bar.style.width = "0%";
   }
 
   if (data.stage === "downloading") {
-
     status.innerHTML = `
       Baixando... ${data.percent || 0}%<br>
       ${data.speed || "0MiB/s"} • ETA ${data.eta || "--"}
     `;
-
     bar.style.width = (data.percent || 0) + "%";
-
   }
 
   if (data.stage === "converting") {
-
     status.innerHTML = `
       Convertendo para MP4 H264/AAC...<br>
       ${data.percent || 0}% concluído
     `;
-
     bar.style.width = (data.percent || 0) + "%";
-
   }
 
   if (data.stage === "finished") {
-
     status.innerHTML = `
       <span class="done">
         Conversão finalizada com sucesso
@@ -255,41 +268,30 @@ function updateCard(card, data) {
     bar.style.width = "100%";
 
     actions.innerHTML = `
-      <button class="download-btn">
+      <button class="download-btn" type="button">
         Baixar MP4
       </button>
     `;
 
     actions.querySelector("button").onclick = () => {
-
       const a = document.createElement("a");
-
       a.href = data.download;
-
       a.download = "";
-
+      a.target = "_self";
       document.body.appendChild(a);
-
       a.click();
-
       a.remove();
-
     };
-
   }
 
   if (data.stage === "error") {
-
     status.innerHTML = `
       <span class="error">
         ${data.message}
       </span>
     `;
-
   }
-
 }
-
 </script>
 
 </body>
