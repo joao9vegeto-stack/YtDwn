@@ -69,11 +69,13 @@ const socket = io();
 
 const downloads = {};
 
-socket.on("progress", (data)=>{
+socket.on("progress", (data) => {
+
+  console.log("PROGRESS:", data);
 
   let item = downloads[data.id];
 
-  if(!item){
+  if (!item) {
 
     item = createDownloadCard(data);
 
@@ -84,30 +86,73 @@ socket.on("progress", (data)=>{
 
 });
 
-async function startDownload(){
+async function startDownload() {
 
   const url = document.getElementById("url").value.trim();
   const quality = document.getElementById("quality").value;
 
-  if(!url){
+  if (!url) {
     alert("Cole um link");
     return;
   }
 
-  await fetch("/api/download",{
-    method:"POST",
-    headers:{
-      "Content-Type":"application/json"
-    },
-    body:JSON.stringify({
-      url,
-      quality
-    })
+  const fakeId = "tmp_" + Date.now();
+
+  const fakeCard = createDownloadCard({
+    id: fakeId,
+    title: "Preparando download...",
+    thumbnail: ""
   });
+
+  downloads[fakeId] = fakeCard;
+
+  updateCard(fakeCard, {
+    stage: "downloading",
+    percent: 0,
+    speed: "Conectando...",
+    eta: "--"
+  });
+
+  try {
+
+    const req = await fetch("/api/download", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        url,
+        quality
+      })
+    });
+
+    const data = await req.json();
+
+    console.log("API:", data);
+
+    if (data.error) {
+
+      updateCard(fakeCard, {
+        stage: "error",
+        message: data.error
+      });
+
+    }
+
+  } catch (err) {
+
+    console.error(err);
+
+    updateCard(fakeCard, {
+      stage: "error",
+      message: "Erro ao iniciar download"
+    });
+
+  }
 
 }
 
-function createDownloadCard(data){
+function createDownloadCard(data) {
 
   const container = document.createElement("div");
 
@@ -145,33 +190,49 @@ function createDownloadCard(data){
 
 }
 
-function updateCard(card,data){
+function updateCard(card, data) {
 
   const status = card.querySelector(".status-text");
   const bar = card.querySelector(".progress-bar");
   const actions = card.querySelector(".download-actions");
 
-  if(data.stage === "downloading"){
+  if (data.thumbnail) {
+
+    const img = card.querySelector("img");
+
+    img.src = data.thumbnail;
+
+  }
+
+  if (data.title) {
+
+    card.querySelector(".video-title").innerText = data.title;
+
+  }
+
+  if (data.stage === "downloading") {
 
     status.innerHTML = `
-      Baixando... ${data.percent}%<br>
+      Baixando... ${data.percent || 0}%<br>
       ${data.speed || "0MiB/s"} • ETA ${data.eta || "--"}
     `;
 
-    bar.style.width = data.percent + "%";
+    bar.style.width = (data.percent || 0) + "%";
+
   }
 
-  if(data.stage === "converting"){
+  if (data.stage === "converting") {
 
     status.innerHTML = `
       Convertendo para MP4 H264/AAC...<br>
-      ${data.percent}% concluído
+      ${data.percent || 0}% concluído
     `;
 
-    bar.style.width = data.percent + "%";
+    bar.style.width = (data.percent || 0) + "%";
+
   }
 
-  if(data.stage === "finished"){
+  if (data.stage === "finished") {
 
     status.innerHTML = `
       <span class="done">
@@ -182,21 +243,37 @@ function updateCard(card,data){
     bar.style.width = "100%";
 
     actions.innerHTML = `
-      <a href="${data.download}">
-        <button class="download-btn">
-          Baixar MP4
-        </button>
-      </a>
+      <button class="download-btn">
+        Baixar MP4
+      </button>
     `;
+
+    actions.querySelector("button").onclick = () => {
+
+      const a = document.createElement("a");
+
+      a.href = data.download;
+
+      a.download = "";
+
+      document.body.appendChild(a);
+
+      a.click();
+
+      a.remove();
+
+    };
+
   }
 
-  if(data.stage === "error"){
+  if (data.stage === "error") {
 
     status.innerHTML = `
       <span class="error">
         ${data.message}
       </span>
     `;
+
   }
 
 }
