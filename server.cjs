@@ -167,7 +167,7 @@ yt.on("ytDlpEvent", (eventType, eventData) => {
     percent:100
   });
 
-  res.json({
+  return res.json({
     success:true,
     download:`/downloads/${id}.mp4`
   });
