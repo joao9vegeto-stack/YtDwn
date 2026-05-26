@@ -87,9 +87,9 @@ async function processDownload({ id, url, quality }) {
       : "");
 
   const sourceTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
-  const finalPath = path.join(downloadsDir, `${id}.mp4`);
+const finalPath = path.join(downloadsDir, `${id}.final.mp4`);
 
-  safeRemove(finalPath);
+safeRemove(finalPath);
 
   emitProgress({
     id,
@@ -148,6 +148,65 @@ async function processDownload({ id, url, quality }) {
   });
 
   await yt.promise;
+
+const sourceBase = `${id}.source`;
+
+const files = fs.readdirSync(downloadsDir);
+
+const mergedFile = files.find(
+  (f) =>
+    f.startsWith(sourceBase) &&
+    f.endsWith(".mp4")
+);
+
+if (!mergedFile) {
+  throw new Error("MP4 mesclado não encontrado");
+}
+
+const mergedPath = path.join(downloadsDir, mergedFile);
+
+await waitForFile(mergedPath);
+
+emitProgress({
+  id,
+  title,
+  thumbnail,
+  stage: "converting",
+  percent: 5
+});
+
+await new Promise((resolve, reject) => {
+  ffmpeg(mergedPath)
+    .videoCodec("libx264")
+    .audioCodec("aac")
+    .outputOptions([
+      "-preset ultrafast",
+      "-movflags +faststart"
+    ])
+    .save(finalPath)
+    .on("progress", (p) => {
+      emitProgress({
+        id,
+        title,
+        thumbnail,
+        stage: "converting",
+        percent: Math.min(99, Math.floor(p.percent || 0))
+      });
+    })
+    .on("end", resolve)
+    .on("error", reject);
+});
+
+await waitForFile(finalPath);
+
+emitProgress({
+  id,
+  title,
+  thumbnail,
+  stage: "finished",
+  percent: 100,
+  download: `/download/${path.basename(finalPath)}`
+});
 
   const sourceBase = `${id}.source`;
 
