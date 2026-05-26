@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const compression = require("compression");
+const { spawn } = require("child_process");
 
 const { Server } = require("socket.io");
 const YTDlpWrap = require("yt-dlp-wrap").default;
@@ -71,9 +72,127 @@ function emitProgress(payload) {
   io.emit("progress", payload);
 }
 
+function waitForFile(filePath, timeoutMs = 60000, intervalMs = 250) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+
+    const tick = () => {
+      if (fs.existsSync(filePath)) {
+        resolve(true);
+        return;
+      }
+
+      if (Date.now() - started >= timeoutMs) {
+        reject(new Error("Arquivo final não encontrado"));
+        return;
+      }
+
+      setTimeout(tick, intervalMs);
+    };
+
+    tick();
+  });
+}
+
+function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title, thumbnail }) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      "-y",
+      "-i", inputPath,
+      "-c:v", "libx264",
+      "-preset", "fast",
+      "-crf", "23",
+      "-pix_fmt", "yuv420p",
+      "-r", "30",
+      "-vsync", "cfr",
+      "-c:a", "aac",
+      "-b:a", "192k",
+      "-movflags", "+faststart",
+      "-progress", "pipe:1",
+      "-nostats",
+      outputPath
+    ];
+
+    const ffmpeg = spawn("ffmpeg", args, {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let latestPercent = 0;
+
+    const handleProgressChunk = (chunk) => {
+      const text = String(chunk || "");
+      const lines = text.split(/\r?\n/);
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        if (line.startsWith("out_time_ms=")) {
+          const outTimeMs = Number(line.replace("out_time_ms=", "").trim());
+          if (Number.isFinite(outTimeMs) && durationSeconds > 0) {
+            const percent = Math.min(99, Math.floor((outTimeMs / 1000000 / durationSeconds) * 100));
+            if (percent >= latestPercent) {
+              latestPercent = percent;
+              emitProgress({
+                id,
+                title,
+                thumbnail,
+                stage: "converting",
+                percent,
+                speed: "FFmpeg",
+                eta: "--"
+              });
+            }
+          }
+        }
+
+        if (line === "progress=end") {
+          emitProgress({
+            id,
+            title,
+            thumbnail,
+            stage: "converting",
+            percent: 100,
+            speed: "FFmpeg",
+            eta: "--"
+          });
+        }
+      }
+    };
+
+    ffmpeg.stdout.on("data", handleProgressChunk);
+
+    ffmpeg.stderr.on("data", (chunk) => {
+      const text = String(chunk || "");
+      console.log(text);
+    });
+
+    ffmpeg.on("error", reject);
+
+    ffmpeg.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg terminou com código ${code}`));
+      }
+    });
+  });
+}
+
 async function processDownload({ id, url, quality }) {
-  let title = "Vídeo";
-  let thumbnail = "";
+  const info = await ytDlp.getVideoInfo(url);
+
+  const title = info.title || "Vídeo";
+  const thumbnail =
+    info.thumbnail ||
+    (info.thumbnails?.length
+      ? info.thumbnails[info.thumbnails.length - 1].url
+      : "");
+
+  const mergedPath = path.join(downloadsDir, `${id}.merged.mp4`);
+  const finalPath = path.join(downloadsDir, `${id}.mp4`);
+
+  if (fs.existsSync(mergedPath)) fs.rmSync(mergedPath, { force: true });
+  if (fs.existsSync(finalPath)) fs.rmSync(finalPath, { force: true });
 
   emitProgress({
     id,
@@ -84,17 +203,6 @@ async function processDownload({ id, url, quality }) {
     speed: "Conectando...",
     eta: "--"
   });
-
-  const info = await ytDlp.getVideoInfo(url);
-
-  title = info.title || "Vídeo";
-  thumbnail =
-    info.thumbnail ||
-    (info.thumbnails?.length
-      ? info.thumbnails[info.thumbnails.length - 1].url
-      : "");
-
-  const output = path.join(downloadsDir, `${id}.mp4`);
 
   emitProgress({
     id,
@@ -113,13 +221,25 @@ async function processDownload({ id, url, quality }) {
     "--merge-output-format",
     "mp4",
     "-o",
-    output
+    mergedPath
   ]);
 
   yt.on("ytDlpEvent", (_eventType, eventData) => {
     const text = String(eventData ?? "");
-
     console.log(text);
+
+    if (text.includes("Merging formats into")) {
+      emitProgress({
+        id,
+        title,
+        thumbnail,
+        stage: "merging",
+        percent: 100,
+        speed: "Finalizando...",
+        eta: "--"
+      });
+      return;
+    }
 
     const match = text.match(
       /(\d+(?:\.\d+)?)%\s+of.*?at\s+([^\s]+).*?ETA\s+([0-9:]+)/
@@ -144,7 +264,32 @@ async function processDownload({ id, url, quality }) {
 
   await yt.promise;
 
-  if (!fs.existsSync(output)) {
+  await waitForFile(mergedPath, 60000);
+
+  emitProgress({
+    id,
+    title,
+    thumbnail,
+    stage: "converting",
+    percent: 0,
+    speed: "FFmpeg",
+    eta: "--"
+  });
+
+  await runFfmpegTranscode({
+    inputPath: mergedPath,
+    outputPath: finalPath,
+    durationSeconds: Number(info.duration || 0),
+    id,
+    title,
+    thumbnail
+  });
+
+  if (fs.existsSync(mergedPath)) {
+    fs.rmSync(mergedPath, { force: true });
+  }
+
+  if (!fs.existsSync(finalPath)) {
     throw new Error("Arquivo final não encontrado");
   }
 
@@ -172,7 +317,7 @@ app.post("/api/download", async (req, res) => {
     });
   }
 
-  const { url, quality, clientId } = req.body || {};
+  const { url, quality } = req.body || {};
 
   if (!url) {
     return res.status(400).json({
@@ -180,7 +325,7 @@ app.post("/api/download", async (req, res) => {
     });
   }
 
-  const id = String(clientId || Date.now());
+  const id = Date.now().toString();
 
   busy = true;
 
