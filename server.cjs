@@ -3,8 +3,6 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
-const { spawn } = require("child_process");
-
 const compression = require("compression");
 const { Server } = require("socket.io");
 const YTDlpWrap = require("yt-dlp-wrap").default;
@@ -19,14 +17,14 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const ytDlp = new YTDlpWrap();
 
+const downloadsDir = path.join(__dirname, "downloads");
+
 app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static(path.join(__dirname, "public")));
-
-const downloadsDir = path.join(__dirname, "downloads");
 
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir, { recursive: true });
@@ -58,22 +56,45 @@ function safeRemove(filePath) {
   }
 }
 
-function waitForFile(filePath, timeout = 30000) {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-
-    const timer = setInterval(() => {
-      if (fs.existsSync(filePath)) {
-        clearInterval(timer);
-        return resolve(true);
+function cleanJobFiles(id) {
+  try {
+    const files = fs.readdirSync(downloadsDir);
+    for (const file of files) {
+      if (file.startsWith(id)) {
+        safeRemove(path.join(downloadsDir, file));
       }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
 
-      if (Date.now() - start > timeout) {
-        clearInterval(timer);
-        return reject(new Error("Arquivo final não encontrado"));
-      }
-    }, 300);
-  });
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForMergedFile(id, timeout = 60000) {
+  const exactFile = path.join(downloadsDir, `${id}.source.mp4`);
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    if (fs.existsSync(exactFile)) {
+      return exactFile;
+    }
+
+    const files = fs.readdirSync(downloadsDir).filter(
+      (file) => file.startsWith(`${id}.source`) && file.endsWith(".mp4")
+    );
+
+    if (files.length > 0) {
+      files.sort((a, b) => a.length - b.length);
+      return path.join(downloadsDir, files[0]);
+    }
+
+    await sleep(300);
+  }
+
+  throw new Error("MP4 mesclado não encontrado");
 }
 
 async function processDownload({ id, url, quality }) {
@@ -86,16 +107,18 @@ async function processDownload({ id, url, quality }) {
       ? info.thumbnails[info.thumbnails.length - 1].url
       : "");
 
-  const sourceTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
-const finalPath = path.join(downloadsDir, `${id}.final.mp4`);
+  const safeQuality = String(quality || "1080").replace(/\D/g, "") || "1080";
 
-safeRemove(finalPath);
+  const outputTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
+  const finalPath = path.join(downloadsDir, `${id}.mp4`);
+
+  cleanJobFiles(id);
 
   emitProgress({
     id,
     title,
     thumbnail,
-    stage: "downloading",
+    stage: "starting",
     percent: 0,
     speed: "--",
     eta: "--"
@@ -104,15 +127,13 @@ safeRemove(finalPath);
   const yt = ytDlp.exec([
     url,
     "--no-playlist",
-
     "-f",
-    `bestvideo[height<=${quality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${quality}]+bestaudio/best`,
-
+    `bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[ext=m4a]/bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${safeQuality}]+bestaudio[ext=m4a]/bestvideo[height<=${safeQuality}]+bestaudio/best`,
     "--merge-output-format",
     "mp4",
-
+    "--newline",
     "-o",
-    sourceTemplate
+    outputTemplate
   ]);
 
   yt.on("ytDlpEvent", (_type, data) => {
@@ -142,183 +163,21 @@ safeRemove(finalPath);
         title,
         thumbnail,
         stage: "merging",
-        percent: 100
+        percent: 100,
+        speed: "--",
+        eta: "--"
       });
     }
   });
 
   await yt.promise;
 
-const sourceBase = `${id}.source`;
+  const mergedPath = await waitForMergedFile(id);
 
-const files = fs.readdirSync(downloadsDir);
-
-const mergedFile = files.find(
-  (f) =>
-    f.startsWith(sourceBase) &&
-    f.endsWith(".mp4")
-);
-
-if (!mergedFile) {
-  throw new Error("MP4 mesclado não encontrado");
-}
-
-const mergedPath = path.join(downloadsDir, mergedFile);
-
-await waitForFile(mergedPath);
-
-emitProgress({
-  id,
-  title,
-  thumbnail,
-  stage: "converting",
-  percent: 5
-});
-
-await new Promise((resolve, reject) => {
-  ffmpeg(mergedPath)
-    .videoCodec("libx264")
-    .audioCodec("aac")
-    .outputOptions([
-      "-preset ultrafast",
-      "-movflags +faststart"
-    ])
-    .save(finalPath)
-    .on("progress", (p) => {
-      emitProgress({
-        id,
-        title,
-        thumbnail,
-        stage: "converting",
-        percent: Math.min(99, Math.floor(p.percent || 0))
-      });
-    })
-    .on("end", resolve)
-    .on("error", reject);
-});
-
-await waitForFile(finalPath);
-
-emitProgress({
-  id,
-  title,
-  thumbnail,
-  stage: "finished",
-  percent: 100,
-  download: `/download/${path.basename(finalPath)}`
-});
-
-
-
-  await waitForFile(mergedPath);
-
-  emitProgress({
-    id,
-    title,
-    thumbnail,
-    stage: "converting",
-    percent: 5
-  });
-
-  const ffmpegArgs = [
-    "-y",
-
-    "-i",
-    mergedPath,
-
-    "-c:v",
-    "libx264",
-
-    "-preset",
-    "ultrafast",
-
-    "-pix_fmt",
-    "yuv420p",
-
-    "-profile:v",
-    "high",
-
-    "-level",
-    "4.0",
-
-    "-movflags",
-    "+faststart",
-
-    "-r",
-    "30",
-
-    "-fps_mode",
-    "cfr",
-
-    "-g",
-    "60",
-
-    "-keyint_min",
-    "60",
-
-    "-sc_threshold",
-    "0",
-
-    "-c:a",
-    "aac",
-
-    "-b:a",
-    "192k",
-
-    "-ar",
-    "48000",
-
-    "-ac",
-    "2",
-
-    finalPath
-  ];
-
-  await new Promise((resolve, reject) => {
-    const ffmpeg = spawn("ffmpeg", ffmpegArgs);
-
-    ffmpeg.stderr.on("data", (data) => {
-      const line = data.toString();
-
-      console.log(line);
-
-      const match = line.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-
-      if (match) {
-        const h = parseInt(match[1]);
-        const m = parseInt(match[2]);
-        const s = parseFloat(match[3]);
-
-        const current = h * 3600 + m * 60 + s;
-        const total = info.duration || 1;
-
-        let percent = Math.floor((current / total) * 100);
-
-        if (percent > 100) percent = 100;
-        if (percent < 5) percent = 5;
-
-        emitProgress({
-          id,
-          title,
-          thumbnail,
-          stage: "converting",
-          percent
-        });
-      }
-    });
-
-    ffmpeg.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error("Erro no FFmpeg"));
-      }
-    });
-  });
-
-  await waitForFile(finalPath);
-
-  safeRemove(mergedPath);
+  if (mergedPath !== finalPath) {
+    safeRemove(finalPath);
+    fs.renameSync(mergedPath, finalPath);
+  }
 
   emitProgress({
     id,
@@ -330,7 +189,8 @@ emitProgress({
   });
 
   return {
-    success: true
+    success: true,
+    download: `/downloads/${id}.mp4`
   };
 }
 
