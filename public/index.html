@@ -1,331 +1,204 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YT Downloader</title>
 
-  <title>YT Downloader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
 
-  <style>
-    *{
-      margin:0;
-      padding:0;
-      box-sizing:border-box;
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    }
+<link rel="stylesheet" href="/style.css">
 
-    body{
-      background:#050505;
-      color:white;
-      min-height:100vh;
-      overflow-x:hidden;
-    }
-
-    .bg{
-      position:fixed;
-      inset:0;
-      background:
-      radial-gradient(circle at top,#ff003c22 0%,transparent 35%),
-      radial-gradient(circle at bottom,#ff003c11 0%,transparent 35%),
-      #050505;
-      z-index:-1;
-    }
-
-    .container{
-      width:100%;
-      max-width:680px;
-      margin:auto;
-      padding:28px 18px 60px;
-    }
-
-    .logo{
-      font-size:42px;
-      font-weight:800;
-      letter-spacing:-1px;
-      margin-bottom:10px;
-      background:linear-gradient(90deg,#ff003c,#ff3d6e);
-      -webkit-background-clip:text;
-      -webkit-text-fill-color:transparent;
-    }
-
-    .subtitle{
-      color:#8a8a8a;
-      font-size:15px;
-      line-height:1.5;
-      margin-bottom:34px;
-    }
-
-    .glass{
-      background:#101010;
-      border:1px solid #1f1f1f;
-      border-radius:26px;
-      padding:18px;
-      backdrop-filter:blur(12px);
-      box-shadow:
-      0 0 0 1px rgba(255,255,255,.02),
-      0 10px 40px rgba(0,0,0,.45);
-    }
-
-    .input{
-      width:100%;
-      background:#181818;
-      border:none;
-      outline:none;
-      height:62px;
-      border-radius:18px;
-      padding:0 20px;
-      color:white;
-      font-size:16px;
-      margin-bottom:16px;
-    }
-
-    .input::placeholder{
-      color:#6f6f6f;
-    }
-
-    .select{
-      width:100%;
-      background:#181818;
-      border:none;
-      outline:none;
-      height:62px;
-      border-radius:18px;
-      padding:0 20px;
-      color:white;
-      font-size:16px;
-      margin-bottom:16px;
-    }
-
-    .btn{
-      width:100%;
-      height:64px;
-      border:none;
-      border-radius:18px;
-      background:linear-gradient(135deg,#ff003c,#ff2356);
-      color:white;
-      font-size:19px;
-      font-weight:700;
-      cursor:pointer;
-      transition:.2s;
-      box-shadow:0 10px 30px rgba(255,0,60,.25);
-    }
-
-    .btn:active{
-      transform:scale(.98);
-    }
-
-    .status{
-      margin-top:28px;
-      display:none;
-    }
-
-    .video-card{
-      margin-top:26px;
-      background:#0d0d0d;
-      border:1px solid #1d1d1d;
-      border-radius:24px;
-      overflow:hidden;
-    }
-
-    .thumb{
-      width:100%;
-      aspect-ratio:16/9;
-      object-fit:cover;
-      display:block;
-    }
-
-    .content{
-      padding:22px;
-    }
-
-    .title{
-      font-size:24px;
-      font-weight:700;
-      line-height:1.3;
-      margin-bottom:18px;
-    }
-
-    .mini{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      margin-bottom:20px;
-    }
-
-    .tag{
-      background:#171717;
-      border:1px solid #252525;
-      color:#d2d2d2;
-      padding:10px 14px;
-      border-radius:999px;
-      font-size:14px;
-    }
-
-    .download{
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      width:100%;
-      height:62px;
-      border-radius:18px;
-      text-decoration:none;
-      background:linear-gradient(135deg,#ff003c,#ff2356);
-      color:white;
-      font-size:20px;
-      font-weight:700;
-      transition:.2s;
-      box-shadow:0 10px 30px rgba(255,0,60,.25);
-    }
-
-    .download:active{
-      transform:scale(.98);
-    }
-
-    .loading{
-      margin-top:24px;
-      text-align:center;
-      color:#b4b4b4;
-      font-size:15px;
-      display:none;
-    }
-
-    .loader{
-      width:42px;
-      height:42px;
-      border:4px solid #222;
-      border-top:4px solid #ff003c;
-      border-radius:50%;
-      animation:spin 1s linear infinite;
-      margin:0 auto 14px;
-    }
-
-    @keyframes spin{
-      to{
-        transform:rotate(360deg);
-      }
-    }
-
-    @media(max-width:640px){
-
-      .logo{
-        font-size:36px;
-      }
-
-      .title{
-        font-size:21px;
-      }
-
-      .btn{
-        font-size:18px;
-      }
-
-    }
-
-  </style>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
-
 <body>
 
-<div class="bg"></div>
+<div class="bg-glow"></div>
 
-<div class="container">
+<div class="app">
 
-  <div class="logo">
-    YT Downloader
+  <div class="topbar">
+    <div class="logo-wrap">
+      <div class="logo">▶</div>
+
+      <div>
+        <h1>YT Downloader</h1>
+        <p>
+          Conversão otimizada para Adobe After Effects.<br>
+          MP4 H264 + AAC com máxima compatibilidade.
+        </p>
+      </div>
+    </div>
   </div>
 
-  <div class="subtitle">
-    Conversão otimizada para Adobe After Effects.<br>
-    MP4 H264 + AAC com máxima compatibilidade.
-  </div>
+  <div class="hero-card">
 
-  <div class="glass">
+    <div class="input-group">
 
-    <input
-      type="text"
-      id="url"
-      class="input"
-      placeholder="Cole a URL do YouTube"
-    />
+      <input
+        id="url"
+        placeholder="Cole o link do YouTube"
+      >
 
-    <select id="format" class="select">
-      <option value="1080">1080p H264 • CFR30</option>
-      <option value="720">720p H264 • CFR30</option>
-    </select>
+      <select id="quality">
+        <option value="1080">1080p H264 • CFR30</option>
+        <option value="720">720p H264 • CFR30</option>
+        <option value="480">480p H264 • CFR30</option>
+      </select>
 
-    <button class="btn" onclick="downloadVideo()">
-      Baixar e Converter
-    </button>
+      <button class="search-btn" onclick="startDownload()">
+        Baixar e Converter
+      </button>
 
-    <div class="loading" id="loading">
-      <div class="loader"></div>
-      Processando vídeo...
     </div>
 
-    <div class="status" id="status"></div>
-
   </div>
+
+  <h2 class="downloads-title">
+    Downloads
+  </h2>
+
+  <div id="downloads"></div>
 
 </div>
 
 <script>
-async function downloadVideo() {
 
-    const urlInput = document.getElementById("url");
-    const qualitySelect = document.getElementById("quality");
-    const status = document.getElementById("status");
+const socket = io();
 
-    const url = urlInput.value.trim();
-    const quality = qualitySelect.value;
+const downloads = {};
 
-    if (!url) {
-        status.innerHTML = "Cole uma URL válida.";
-        return;
-    }
+socket.on("progress", (data)=>{
 
-    status.innerHTML = "Baixando e convertendo...";
+  let item = downloads[data.id];
 
-    try {
+  if(!item){
 
-        const response = await fetch("/api/download", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                url,
-                quality
-            })
-        });
+    item = createDownloadCard(data);
 
-        const data = await response.json();
+    downloads[data.id] = item;
+  }
 
-        if (!response.ok) {
-            status.innerHTML = data.error || "Erro na conversão";
-            return;
-        }
+  updateCard(item, data);
 
-        status.innerHTML = `
-            <div class="success-card">
-                <div class="success-title">
-                    Conversão concluída
-                </div>
+});
 
-                <a class="download-btn"
-                   href="${data.download}"
-                   download>
-                    Baixar MP4
-                </a>
-            </div>
-        `;
+async function startDownload(){
 
-    } catch (err) {
+  const url = document.getElementById("url").value.trim();
+  const quality = document.getElementById("quality").value;
 
-        console.error(err);
+  if(!url){
+    alert("Cole um link");
+    return;
+  }
 
-        status.innerHTML = "Erro ao conectar ao servidor";
+  await fetch("/api/download",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json"
+    },
+    body:JSON.stringify({
+      url,
+      quality
+    })
+  });
 
-    }
+}
+
+function createDownloadCard(data){
+
+  const container = document.createElement("div");
+
+  container.className = "download-item";
+
+  container.innerHTML = `
+    <div class="thumb">
+      <img src="${data.thumbnail || ""}">
+    </div>
+
+    <div class="download-content">
+
+      <div class="badge">
+        H264
+      </div>
+
+      <div class="video-title">
+        ${data.title || "Processando vídeo"}
+      </div>
+
+      <div class="status-text"></div>
+
+      <div class="progress-wrap">
+        <div class="progress-bar"></div>
+      </div>
+
+      <div class="download-actions"></div>
+
+    </div>
+  `;
+
+  document.getElementById("downloads").prepend(container);
+
+  return container;
+
+}
+
+function updateCard(card,data){
+
+  const status = card.querySelector(".status-text");
+  const bar = card.querySelector(".progress-bar");
+  const actions = card.querySelector(".download-actions");
+
+  if(data.stage === "downloading"){
+
+    status.innerHTML = `
+      Baixando... ${data.percent}%<br>
+      ${data.speed || "0MiB/s"} • ETA ${data.eta || "--"}
+    `;
+
+    bar.style.width = data.percent + "%";
+  }
+
+  if(data.stage === "converting"){
+
+    status.innerHTML = `
+      Convertendo para MP4 H264/AAC...<br>
+      ${data.percent}% concluído
+    `;
+
+    bar.style.width = data.percent + "%";
+  }
+
+  if(data.stage === "finished"){
+
+    status.innerHTML = `
+      <span class="done">
+        Conversão finalizada com sucesso
+      </span>
+    `;
+
+    bar.style.width = "100%";
+
+    actions.innerHTML = `
+      <a href="${data.download}">
+        <button class="download-btn">
+          Baixar MP4
+        </button>
+      </a>
+    `;
+  }
+
+  if(data.stage === "error"){
+
+    status.innerHTML = `
+      <span class="error">
+        ${data.message}
+      </span>
+    `;
+  }
+
 }
 
 </script>
