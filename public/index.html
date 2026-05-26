@@ -1,240 +1,296 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YT Downloader</title>
 
-<script src="/socket.io/socket.io.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
 
-<style>
-body{
-background:#070707;
-font-family:Arial;
-color:white;
-padding:20px;
-}
+<link rel="stylesheet" href="/style.css">
 
-input,select,button{
-width:100%;
-padding:16px;
-margin-top:12px;
-border:none;
-border-radius:14px;
-font-size:18px;
-}
-
-input,select{
-background:#151515;
-color:white;
-}
-
-button{
-background:#ff0055;
-color:white;
-font-weight:bold;
-cursor:pointer;
-}
-
-.download-item{
-background:#111;
-padding:20px;
-border-radius:24px;
-margin-top:20px;
-}
-
-.thumb img{
-width:100%;
-border-radius:18px;
-}
-
-.badge{
-display:inline-block;
-background:#003d1f;
-color:#00ff88;
-padding:10px 14px;
-border-radius:999px;
-font-weight:bold;
-margin-top:18px;
-}
-
-.video-title{
-font-size:20px;
-font-weight:bold;
-margin-top:16px;
-}
-
-.status-text{
-margin-top:10px;
-color:#ddd;
-}
-
-.progress-wrap{
-height:12px;
-background:#222;
-border-radius:999px;
-overflow:hidden;
-margin-top:16px;
-}
-
-.progress-bar{
-height:100%;
-width:0%;
-background:#00ff88;
-transition:0.3s;
-}
-
-.download-actions{
-margin-top:20px;
-}
-
-.download-link{
-display:block;
-padding:16px;
-background:#00c853;
-color:white;
-text-decoration:none;
-border-radius:14px;
-text-align:center;
-font-weight:bold;
-}
-</style>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
-
 <body>
 
-<h1>YT Downloader</h1>
+<div class="bg-glow"></div>
 
-<input
-id="url"
-placeholder="Cole o link do YouTube"
-/>
+<div class="app">
 
-<select id="quality">
-<option value="bestvideo+bestaudio">
-1080p H264 • CFR30
-</option>
-</select>
+  <div class="topbar">
+    <div class="logo-wrap">
+      <div class="logo">▶</div>
 
-<button onclick="startDownload()">
-Baixar e Converter
-</button>
+      <div>
+        <h1>YT Downloader</h1>
+        <p>
+          Conversão otimizada para Adobe After Effects.<br>
+          MP4 H264 + AAC com máxima compatibilidade.
+        </p>
+      </div>
+    </div>
+  </div>
 
-<h2 style="margin-top:40px;">Downloads</h2>
+  <div class="hero-card">
 
-<div id="downloads"></div>
+    <div class="input-group">
+
+      <input
+        id="url"
+        placeholder="Cole o link do YouTube"
+      >
+
+      <select id="quality">
+        <option value="1080">1080p H264 • CFR30</option>
+        <option value="720">720p H264 • CFR30</option>
+        <option value="480">480p H264 • CFR30</option>
+      </select>
+
+      <button class="search-btn" onclick="startDownload()">
+        Baixar e Converter
+      </button>
+
+    </div>
+
+  </div>
+
+  <div class="downloads-header">
+
+    <h2 class="downloads-title">
+      Downloads
+    </h2>
+
+    <button onclick="clearDownloads()" class="clear-btn">
+      Limpar
+    </button>
+
+  </div>
+
+  <div id="downloads"></div>
+
+</div>
 
 <script>
 const socket = io();
 
-const downloads = {};
+let downloads = {};
 
-socket.on("progress", (data) => {
+const downloadButton = document.querySelector(".search-btn");
 
-let item = downloads[data.id];
-
-if (!item) {
-item = createDownloadCard(data);
-downloads[data.id] = item;
+function setButtonState(isLoading, label) {
+  if (!downloadButton) return;
+  downloadButton.disabled = isLoading;
+  downloadButton.textContent = label || (isLoading ? "Processando..." : "Baixar e Converter");
 }
 
-updateCard(item, data);
+function clearDownloads() {
+  document.getElementById("downloads").innerHTML = "";
+  downloads = {};
+}
 
+socket.on("progress", (data) => {
+  console.log("PROGRESS:", data);
+
+  let item = downloads[data.id];
+
+  if (!item) {
+    item = createDownloadCard(data);
+    downloads[data.id] = item;
+  }
+
+  updateCard(item, data);
+
+  if (data.stage === "finished" || data.stage === "error") {
+    setButtonState(false, "Baixar e Converter");
+  }
 });
 
 async function startDownload() {
+  const url = document.getElementById("url").value.trim();
+  const quality = document.getElementById("quality").value;
 
-const url = document.getElementById("url").value.trim();
+  if (!url) {
+    alert("Cole um link");
+    return;
+  }
 
-const quality = document.getElementById("quality").value;
+  if (downloadButton && downloadButton.disabled) {
+    return;
+  }
 
-if (!url) {
-alert("Cole uma URL");
-return;
-}
+  const clientId = "job_" + Date.now();
 
-socket.emit("start-download", {
-url,
-quality
-});
+  const card = createDownloadCard({
+    id: clientId,
+    title: "Preparando download...",
+    thumbnail: ""
+  });
 
+  downloads[clientId] = card;
+
+  updateCard(card, {
+    stage: "starting",
+    percent: 0,
+    speed: "Conectando...",
+    eta: "--"
+  });
+
+  setButtonState(true, "Processando...");
+
+  try {
+    const req = await fetch("/api/download", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        url,
+        quality,
+        clientId
+      })
+    });
+
+    const data = await req.json();
+
+    console.log("API:", data);
+
+    if (!req.ok || data.error) {
+      updateCard(card, {
+        stage: "error",
+        message: data.error || "Erro ao iniciar download"
+      });
+      setButtonState(false, "Baixar e Converter");
+      return;
+    }
+
+  } catch (err) {
+    console.error(err);
+
+    updateCard(card, {
+      stage: "error",
+      message: "Erro ao iniciar download"
+    });
+
+    setButtonState(false, "Baixar e Converter");
+  }
 }
 
 function createDownloadCard(data) {
+  const container = document.createElement("div");
+  container.className = "download-item";
+  container.dataset.jobId = data.id || "";
 
-const container = document.createElement("div");
-
-container.className = "download-item";
-
-container.innerHTML = `
+  container.innerHTML = `
 <div class="thumb">
-<img src="${data.thumbnail || ""}">
+  <img src="${data.thumbnail || ""}" alt="">
 </div>
 
-<div class="badge">
-H264
+<div class="download-content">
+
+  <div class="badge">
+    H264
+  </div>
+
+  <div class="video-title">
+    ${data.title || "Processando vídeo"}
+  </div>
+
+  <div class="status-text"></div>
+
+  <div class="progress-wrap">
+    <div class="progress-bar"></div>
+  </div>
+
+  <div class="download-actions"></div>
+
 </div>
-
-<div class="video-title">
-${data.title || "Processando vídeo"}
-</div>
-
-<div class="status-text"></div>
-
-<div class="progress-wrap">
-<div class="progress-bar"></div>
-</div>
-
-<div class="download-actions"></div>
 `;
 
-document.getElementById("downloads").prepend(container);
+  document.getElementById("downloads").prepend(container);
 
-return container;
+  return container;
 }
 
 function updateCard(card, data) {
+  const status = card.querySelector(".status-text");
+  const bar = card.querySelector(".progress-bar");
+  const actions = card.querySelector(".download-actions");
 
-const status = card.querySelector(".status-text");
+  if (data.thumbnail) {
+    const img = card.querySelector("img");
+    img.src = data.thumbnail;
+  }
 
-const bar = card.querySelector(".progress-bar");
+  if (data.title) {
+    card.querySelector(".video-title").innerText = data.title;
+  }
 
-const actions = card.querySelector(".download-actions");
+  if (data.stage === "starting") {
+    status.innerHTML = `
+      Preparando download...<br>
+      ${data.speed || "Conectando..."} • ETA ${data.eta || "--"}
+    `;
+    bar.style.width = "0%";
+  }
 
-if (data.thumbnail) {
-card.querySelector("img").src = data.thumbnail;
-}
+  if (data.stage === "downloading") {
+    status.innerHTML = `
+      Baixando... ${data.percent || 0}%<br>
+      ${data.speed || "0MiB/s"} • ETA ${data.eta || "--"}
+    `;
+    bar.style.width = (data.percent || 0) + "%";
+  }
 
-if (data.title) {
-card.querySelector(".video-title").innerText = data.title;
-}
+  if (data.stage === "merging") {
+    status.innerHTML = `
+      Mesclando formatos...<br>
+      Finalizando o MP4
+    `;
+    bar.style.width = "100%";
+  }
 
-status.innerText = data.message || "";
+  if (data.stage === "converting") {
+    status.innerHTML = `
+      Convertendo para MP4 H264/AAC...<br>
+      ${data.percent || 0}% concluído
+    `;
+    bar.style.width = (data.percent || 0) + "%";
+  }
 
-if (typeof data.progress !== "undefined") {
-bar.style.width = `${data.progress}%`;
-}
+  if (data.stage === "finished") {
+    status.innerHTML = `
+      <span class="done">
+        Conversão finalizada com sucesso
+      </span>
+    `;
 
-if (data.stage === "finished") {
+    bar.style.width = "100%";
 
-actions.innerHTML = `
-<a
-class="download-link"
-href="${data.download}"
-download
->
-Baixar MP4
-</a>
-`;
+    actions.innerHTML = `
+      <button class="download-btn" type="button">
+        Baixar MP4
+      </button>
+    `;
 
-status.innerText = "Download concluído";
-bar.style.width = "100%";
-}
+    actions.querySelector("button").onclick = () => {
+      const a = document.createElement("a");
+      a.href = data.download;
+      a.download = "";
+      a.target = "_self";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+  }
 
-if (data.stage === "error") {
-bar.style.width = "0%";
-}
+  if (data.stage === "error") {
+    status.innerHTML = `
+      <span class="error">
+        ${data.message}
+      </span>
+    `;
+  }
 }
 </script>
 
