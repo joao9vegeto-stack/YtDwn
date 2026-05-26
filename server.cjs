@@ -121,10 +121,6 @@ app.post("/api/download", async(req,res)=>{
       `bestvideo[height<=${quality}]+bestaudio/best`,
       "--merge-output-format",
       "mp4",
-      "--recode-video",
-      "mp4",
-      "--postprocessor-args",
-      "ffmpeg:-c:v libx264 -c:a aac -b:a 192k",
       "-o",
       output
     ]);
@@ -158,6 +154,29 @@ yt.on("ytDlpEvent", (eventType, eventData) => {
   }
 
 });
+
+   await yt.promise; 
+
+    if(fs.existsSync(output)){
+
+  io.emit("progress",{
+    id,
+    title,
+    thumbnail,
+    stage:"finished",
+    percent:100
+  });
+
+  res.json({
+    success:true,
+    download:`/downloads/${id}.mp4`
+  });
+
+}else{
+
+  throw new Error("Arquivo final não encontrado");
+
+}
 
     yt.on("close",()=>{
 
@@ -206,10 +225,6 @@ yt.on("ytDlpEvent", (eventType, eventData) => {
 
       busy = false;
 
-    });
-
-    res.json({
-      success:true
     });
 
   }catch(err){
