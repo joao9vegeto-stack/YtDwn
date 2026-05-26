@@ -3,12 +3,15 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const compression = require("compression");
 
 const { Server } = require("socket.io");
 
 const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
+
+app.use(compression());
 
 const server = http.createServer(app);
 
@@ -50,6 +53,7 @@ app.get("/downloads/:file", (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${req.params.file}"`);
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "public, max-age=31536000");
+    res.setHeader("X-Accel-Buffering", "no");
 
     const stat = fs.statSync(filePath);
 
