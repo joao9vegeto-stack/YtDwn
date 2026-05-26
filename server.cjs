@@ -38,7 +38,17 @@ if(!fs.existsSync(downloadsDir)){
   fs.mkdirSync(downloadsDir);
 }
 
-app.use("/downloads",express.static(downloadsDir));
+app.get("/downloads/:file", (req, res) => {
+
+  const filePath = path.join(downloadsDir, req.params.file);
+
+  if(!fs.existsSync(filePath)){
+    return res.status(404).send("Arquivo não encontrado");
+  }
+
+  res.download(filePath);
+
+});
 
 let busy = false;
 
