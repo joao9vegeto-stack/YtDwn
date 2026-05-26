@@ -269,106 +269,63 @@
 </div>
 
 <script>
+async function downloadVideo() {
 
-async function downloadVideo(){
+    const urlInput = document.getElementById("url");
+    const qualitySelect = document.getElementById("quality");
+    const status = document.getElementById("status");
 
-  const url = document.getElementById("url").value.trim();
-  const format = document.getElementById("format").value;
+    const url = urlInput.value.trim();
+    const quality = qualitySelect.value;
 
-  const status = document.getElementById("status");
-  const loading = document.getElementById("loading");
-
-  if(!url){
-    alert("Cole uma URL");
-    return;
-  }
-
-  status.style.display = "none";
-  loading.style.display = "block";
-
-  try{
-
-    const response = await fetch("/api/download",{
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json"
-      },
-      body:JSON.stringify({
-        url,
-        format
-      })
-    });
-
-    const data = await response.json();
-
-    loading.style.display = "none";
-
-    if(!data.success){
-      status.style.display = "block";
-      status.innerHTML = `
-        <div style="
-          margin-top:20px;
-          color:#ff4d6d;
-          font-size:15px;
-        ">
-          ${data.error || "Erro ao converter vídeo"}
-        </div>
-      `;
-      return;
+    if (!url) {
+        status.innerHTML = "Cole uma URL válida.";
+        return;
     }
 
-    status.style.display = "block";
+    status.innerHTML = "Baixando e convertendo...";
 
-    status.innerHTML = `
-      <div class="video-card">
+    try {
 
-        <img
-          class="thumb"
-          src="${data.thumbnail}"
-        >
+        const response = await fetch("/api/download", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                url,
+                quality
+            })
+        });
 
-        <div class="content">
+        const data = await response.json();
 
-          <div class="title">
-            ${data.title}
-          </div>
+        if (!response.ok) {
+            status.innerHTML = data.error || "Erro na conversão";
+            return;
+        }
 
-          <div class="mini">
-            <div class="tag">H264 AVC</div>
-            <div class="tag">AAC</div>
-            <div class="tag">CFR 30fps</div>
-            <div class="tag">After Effects Ready</div>
-          </div>
+        status.innerHTML = `
+            <div class="success-card">
+                <div class="success-title">
+                    Conversão concluída
+                </div>
 
-          <a
-            class="download"
-            href="${data.download}"
-          >
-            Baixar MP4
-          </a>
+                <a class="download-btn"
+                   href="${data.download}"
+                   download>
+                    Baixar MP4
+                </a>
+            </div>
+        `;
 
-        </div>
+    } catch (err) {
 
-      </div>
-    `;
+        console.error(err);
 
-  }catch(err){
+        status.innerHTML = "Erro ao conectar ao servidor";
 
-    loading.style.display = "none";
-
-    status.style.display = "block";
-
-    status.innerHTML = `
-      <div style="
-        margin-top:20px;
-        color:#ff4d6d;
-        font-size:15px;
-      ">
-        Erro ao processar vídeo
-      </div>
-    `;
-  }
-
+    }
 }
 
 </script>
