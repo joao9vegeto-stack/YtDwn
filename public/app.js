@@ -63,3 +63,18 @@ async function downloadVideo(){
   button.disabled = false;
 
 }
+
+document
+  .getElementById("clear-history")
+  .addEventListener("click",()=>{
+
+    const downloadsContainer =
+      document.getElementById("downloads");
+
+    downloadsContainer.innerHTML = "";
+
+    Object.keys(downloads).forEach(key=>{
+      delete downloads[key];
+    });
+
+});
