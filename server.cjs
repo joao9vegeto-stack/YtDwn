@@ -3,28 +3,25 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
-const compression = require("compression");
 const { spawn } = require("child_process");
 
+const compression = require("compression");
 const { Server } = require("socket.io");
 const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
-app.use(compression());
-
 const server = http.createServer(app);
-
 const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
+  cors: { origin: "*" }
 });
 
 const PORT = process.env.PORT || 3000;
 const ytDlp = new YTDlpWrap();
 
+app.use(compression());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/", (req, res) => {
@@ -32,38 +29,14 @@ app.get("/", (req, res) => {
 });
 
 const downloadsDir = path.join(__dirname, "downloads");
-
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir, { recursive: true });
 }
 
-app.get("/downloads/:file", (req, res) => {
-  const filePath = path.join(downloadsDir, req.params.file);
+app.use("/downloads", express.static(downloadsDir));
 
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("Arquivo não encontrado");
-  }
-
-  res.setHeader("Content-Type", "video/mp4");
-  res.setHeader("Content-Disposition", `attachment; filename="${req.params.file}"`);
-  res.setHeader("Accept-Ranges", "bytes");
-  res.setHeader("Cache-Control", "public, max-age=31536000");
-  res.setHeader("X-Accel-Buffering", "no");
-
-  const stat = fs.statSync(filePath);
-  res.setHeader("Content-Length", stat.size);
-
-  const stream = fs.createReadStream(filePath);
-
-  stream.on("error", () => {
-    if (!res.headersSent) {
-      res.status(500).end("Erro ao enviar arquivo");
-    } else {
-      res.destroy();
-    }
-  });
-
-  stream.pipe(res);
+app.get("/health", (req, res) => {
+  res.json({ status: "online" });
 });
 
 let busy = false;
@@ -78,7 +51,7 @@ function safeRemove(filePath) {
       fs.rmSync(filePath, { force: true });
     }
   } catch (err) {
-    console.error("Erro ao remover arquivo temporário:", err);
+    console.error("Erro ao remover arquivo:", err);
   }
 }
 
@@ -87,14 +60,10 @@ function waitForFile(filePath, timeoutMs = 60000, intervalMs = 250) {
     const started = Date.now();
 
     const tick = () => {
-      if (fs.existsSync(filePath)) {
-        resolve(true);
-        return;
-      }
+      if (fs.existsSync(filePath)) return resolve(true);
 
       if (Date.now() - started >= timeoutMs) {
-        reject(new Error("Arquivo final não encontrado"));
-        return;
+        return reject(new Error("Arquivo final não encontrado"));
       }
 
       setTimeout(tick, intervalMs);
@@ -104,38 +73,30 @@ function waitForFile(filePath, timeoutMs = 60000, intervalMs = 250) {
   });
 }
 
-function parseTimeToSeconds(line) {
+function parseDurationToSeconds(duration) {
+  const n = Number(duration || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseProgressSeconds(line) {
   const match = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
   if (!match) return null;
 
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const seconds = Number(match[3]);
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  const s = Number(match[3]);
+  if (![h, m, s].every(Number.isFinite)) return null;
 
-  if (
-    !Number.isFinite(hours) ||
-    !Number.isFinite(minutes) ||
-    !Number.isFinite(seconds)
-  ) {
-    return null;
-  }
-
-  return hours * 3600 + minutes * 60 + seconds;
+  return h * 3600 + m * 60 + s;
 }
 
-function runFfmpegTranscode({
-  inputPath,
-  outputPath,
-  durationSeconds,
-  id,
-  title,
-  thumbnail
-}) {
+function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title, thumbnail }) {
   return new Promise((resolve, reject) => {
     const args = [
       "-y",
       "-i", inputPath,
 
+      // Perfil igual ao arquivo final “bom”
       "-c:v", "libx264",
       "-preset", "ultrafast",
       "-tune", "zerolatency",
@@ -155,36 +116,31 @@ function runFfmpegTranscode({
       "-ac", "2",
 
       "-movflags", "+faststart",
-      "-stats_period", "0.5",
+      "-progress", "pipe:1",
+      "-nostats",
       outputPath
     ];
 
     const ffmpeg = spawn("ffmpeg", args, {
-      stdio: ["ignore", "ignore", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"]
     });
 
     let latestPercent = 0;
-    let stderrBuffer = "";
+    let stdoutBuffer = "";
 
-    ffmpeg.stderr.on("data", (chunk) => {
-      stderrBuffer += String(chunk || "");
+    ffmpeg.stdout.on("data", (chunk) => {
+      stdoutBuffer += String(chunk || "");
 
-      const lines = stderrBuffer.split(/\r?\n/);
-      stderrBuffer = lines.pop() || "";
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || "";
 
       for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line) continue;
 
-        console.log(line);
-
-        const currentSeconds = parseTimeToSeconds(line);
+        const currentSeconds = parseProgressSeconds(line);
         if (currentSeconds !== null && durationSeconds > 0) {
-          const percent = Math.min(
-            99,
-            Math.floor((currentSeconds / durationSeconds) * 100)
-          );
-
+          const percent = Math.min(99, Math.floor((currentSeconds / durationSeconds) * 100));
           if (percent > latestPercent) {
             latestPercent = percent;
             emitProgress({
@@ -199,6 +155,11 @@ function runFfmpegTranscode({
           }
         }
       }
+    });
+
+    ffmpeg.stderr.on("data", (chunk) => {
+      const text = String(chunk || "");
+      console.log(text);
     });
 
     ffmpeg.on("error", reject);
@@ -232,12 +193,11 @@ async function processDownload({ id, url, quality }) {
       ? info.thumbnails[info.thumbnails.length - 1].url
       : "");
 
-  const durationSeconds = Number(info.duration || 0);
+  const durationSeconds = parseDurationToSeconds(info.duration);
 
-  const mergedPath = path.join(downloadsDir, `${id}.merged.mp4`);
+  const sourcePath = path.join(downloadsDir, `${id}.source.%(ext)s`);
   const finalPath = path.join(downloadsDir, `${id}.mp4`);
 
-  safeRemove(mergedPath);
   safeRemove(finalPath);
 
   emitProgress({
@@ -268,7 +228,7 @@ async function processDownload({ id, url, quality }) {
     "--merge-output-format",
     "mp4",
     "-o",
-    mergedPath
+    sourcePath
   ]);
 
   yt.on("ytDlpEvent", (_eventType, eventData) => {
@@ -293,18 +253,14 @@ async function processDownload({ id, url, quality }) {
     );
 
     if (match) {
-      const percent = Number.parseFloat(match[1]);
-      const speed = match[2];
-      const eta = match[3];
-
       emitProgress({
         id,
         title,
         thumbnail,
         stage: "downloading",
-        percent,
-        speed,
-        eta
+        percent: Number.parseFloat(match[1]),
+        speed: match[2],
+        eta: match[3]
       });
     }
   });
@@ -314,7 +270,19 @@ async function processDownload({ id, url, quality }) {
   });
 
   await yt.promise;
-  await waitForFile(mergedPath, 60000);
+
+  // yt-dlp pode gerar .mp4, .mkv ou .webm; achamos o arquivo real
+  const sourceBase = path.basename(sourcePath).replace(/\.%\(ext\)s$/, "");
+  const sourceFile = fs
+    .readdirSync(downloadsDir)
+    .find((f) => f.startsWith(sourceBase + "."));
+
+  if (!sourceFile) {
+    throw new Error("Arquivo fonte não encontrado");
+  }
+
+  const realSourcePath = path.join(downloadsDir, sourceFile);
+  await waitForFile(realSourcePath, 60000);
 
   emitProgress({
     id,
@@ -327,7 +295,7 @@ async function processDownload({ id, url, quality }) {
   });
 
   await runFfmpegTranscode({
-    inputPath: mergedPath,
+    inputPath: realSourcePath,
     outputPath: finalPath,
     durationSeconds,
     id,
@@ -335,7 +303,7 @@ async function processDownload({ id, url, quality }) {
     thumbnail
   });
 
-  safeRemove(mergedPath);
+  safeRemove(realSourcePath);
 
   if (!fs.existsSync(finalPath)) {
     throw new Error("Arquivo final não encontrado");
@@ -377,6 +345,8 @@ app.post("/api/download", async (req, res) => {
 
   busy = true;
 
+  // A UI recebe os eventos de progresso via socket.
+  // A resposta só confirma que o job começou.
   res.status(202).json({
     success: true,
     id
