@@ -40,13 +40,24 @@ if(!fs.existsSync(downloadsDir)){
 
 app.get("/downloads/:file", (req, res) => {
 
-  const filePath = path.join(downloadsDir, req.params.file);
+    const filePath = path.join(downloadsDir, req.params.file);
 
-  if(!fs.existsSync(filePath)){
-    return res.status(404).send("Arquivo não encontrado");
-  }
+    if(!fs.existsSync(filePath)){
+        return res.status(404).send("Arquivo não encontrado");
+    }
 
-  res.download(filePath);
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Content-Disposition", `attachment; filename="${req.params.file}"`);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+
+    const stat = fs.statSync(filePath);
+
+    res.setHeader("Content-Length", stat.size);
+
+    const stream = fs.createReadStream(filePath);
+
+    stream.pipe(res);
 
 });
 
