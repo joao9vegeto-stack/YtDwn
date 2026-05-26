@@ -515,17 +515,16 @@ function updateCard(card, data) {
       <button class="download-btn" type="button">Baixar MP4</button>
     `;
 
-    const btn = actions.querySelector("button");
-    btn.onclick = () => {
-      const a = document.createElement("a");
-      a.href = data.download;
-      a.download = "";
-      a.target = "_self";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    };
-  }
+  const btn = actions.querySelector("button");
+
+btn.onclick = () => {
+  window.location.href = data.download;
+};
+
+// AUTO DOWNLOAD IPHONE
+setTimeout(() => {
+  window.location.href = data.download;
+}, 1000);
 
   if (data.stage === "error") {
     status.innerHTML = `
