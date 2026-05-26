@@ -4,10 +4,10 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const compression = require("compression");
-const { spawn } = require("child_process");
 
 const { Server } = require("socket.io");
 const YTDlpWrap = require("yt-dlp-wrap").default;
+const { spawn } = require("child_process");
 
 const app = express();
 app.use(compression());
@@ -119,18 +119,22 @@ function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title,
 
     let latestPercent = 0;
 
-    const handleProgressChunk = (chunk) => {
+    ffmpeg.stdout.on("data", (chunk) => {
       const text = String(chunk || "");
       const lines = text.split(/\r?\n/);
 
       for (const line of lines) {
         if (!line.trim()) continue;
 
-        if (line.startsWith("out_time_ms=")) {
-          const outTimeMs = Number(line.replace("out_time_ms=", "").trim());
-          if (Number.isFinite(outTimeMs) && durationSeconds > 0) {
-            const percent = Math.min(99, Math.floor((outTimeMs / 1000000 / durationSeconds) * 100));
-            if (percent >= latestPercent) {
+        if (line.startsWith("out_time_ms=") && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+          const outTimeUs = Number(line.replace("out_time_ms=", "").trim());
+          if (Number.isFinite(outTimeUs)) {
+            const percent = Math.min(
+              99,
+              Math.floor((outTimeUs / 1000000 / durationSeconds) * 100)
+            );
+
+            if (percent > latestPercent) {
               latestPercent = percent;
               emitProgress({
                 id,
@@ -157,13 +161,10 @@ function runFfmpegTranscode({ inputPath, outputPath, durationSeconds, id, title,
           });
         }
       }
-    };
-
-    ffmpeg.stdout.on("data", handleProgressChunk);
+    });
 
     ffmpeg.stderr.on("data", (chunk) => {
-      const text = String(chunk || "");
-      console.log(text);
+      console.log(String(chunk || ""));
     });
 
     ffmpeg.on("error", reject);
@@ -262,6 +263,10 @@ async function processDownload({ id, url, quality }) {
     }
   });
 
+  yt.on("error", (err) => {
+    console.error(err);
+  });
+
   await yt.promise;
 
   await waitForFile(mergedPath, 60000);
@@ -317,7 +322,7 @@ app.post("/api/download", async (req, res) => {
     });
   }
 
-  const { url, quality } = req.body || {};
+  const { url, quality, clientId } = req.body || {};
 
   if (!url) {
     return res.status(400).json({
@@ -325,7 +330,7 @@ app.post("/api/download", async (req, res) => {
     });
   }
 
-  const id = Date.now().toString();
+  const id = String(clientId || Date.now());
 
   busy = true;
 
