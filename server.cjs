@@ -40,6 +40,16 @@ app.get("/health", (req, res) => {
   res.json({ status: "online" });
 });
 
+app.get("/download/:file", (req, res) => {
+  const filePath = path.join(downloadsDir, req.params.file);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Arquivo não encontrado");
+  }
+
+  return res.download(filePath);
+});
+
 let busy = false;
 
 function emitProgress(payload) {
@@ -74,21 +84,23 @@ function sleep(ms) {
 }
 
 async function waitForMergedFile(id, timeout = 60000) {
-  const exactFile = path.join(downloadsDir, `${id}.source.mp4`);
+  const exactPath = path.join(downloadsDir, `${id}.source.mp4`);
   const deadline = Date.now() + timeout;
 
   while (Date.now() < deadline) {
-    if (fs.existsSync(exactFile)) {
-      return exactFile;
+    if (fs.existsSync(exactPath)) {
+      return exactPath;
     }
 
-    const files = fs.readdirSync(downloadsDir).filter(
-      (file) => file.startsWith(`${id}.source`) && file.endsWith(".mp4")
-    );
+    const candidates = fs
+      .readdirSync(downloadsDir)
+      .filter((name) => name.startsWith(`${id}.source`) && name.endsWith(".mp4"));
 
-    if (files.length > 0) {
-      files.sort((a, b) => a.length - b.length);
-      return path.join(downloadsDir, files[0]);
+    if (candidates.length) {
+      const merged = candidates.find((name) => name.endsWith(".source.mp4"));
+      if (merged) {
+        return path.join(downloadsDir, merged);
+      }
     }
 
     await sleep(300);
@@ -108,11 +120,11 @@ async function processDownload({ id, url, quality }) {
       : "");
 
   const safeQuality = String(quality || "1080").replace(/\D/g, "") || "1080";
-
   const outputTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
   const finalPath = path.join(downloadsDir, `${id}.mp4`);
 
   cleanJobFiles(id);
+  safeRemove(finalPath);
 
   emitProgress({
     id,
@@ -128,7 +140,7 @@ async function processDownload({ id, url, quality }) {
     url,
     "--no-playlist",
     "-f",
-    `bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[ext=m4a]/bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${safeQuality}]+bestaudio[ext=m4a]/bestvideo[height<=${safeQuality}]+bestaudio/best`,
+    `bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${safeQuality}]+bestaudio/best`,
     "--merge-output-format",
     "mp4",
     "--newline",
@@ -174,10 +186,8 @@ async function processDownload({ id, url, quality }) {
 
   const mergedPath = await waitForMergedFile(id);
 
-  if (mergedPath !== finalPath) {
-    safeRemove(finalPath);
-    fs.renameSync(mergedPath, finalPath);
-  }
+  safeRemove(finalPath);
+  fs.renameSync(mergedPath, finalPath);
 
   emitProgress({
     id,
