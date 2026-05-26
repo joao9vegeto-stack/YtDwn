@@ -74,6 +74,11 @@
 <script>
 
 const socket = io();
+  
+function clearDownloads() {
+  document.getElementById("downloads").innerHTML = "";
+}
+  
 
 const downloads = {};
 
@@ -163,33 +168,33 @@ function createDownloadCard(data) {
 
   container.className = "download-item";
 
-  container.innerHTML = `
-    <div class="thumb">
-      <img src="${data.thumbnail || ""}">
-    </div>
+container.innerHTML = `
+<div class="thumb">
+  <img src="${data.thumbnail || ""}">
+</div>
 
-    <div class="download-content">
+<div class="download-content">
 
-      <div class="badge">
-        H264
-      </div>
+  <div class="badge">
+    H264
+  </div>
 
-      <div class="video-title">
-        ${data.title || "Processando vídeo"}
-      </div>
+  <div class="video-title">
+    ${data.title || "Processando vídeo"}
+  </div>
 
-      <div class="status-text"></div>
+  <div class="status-text"></div>
 
-      <div class="progress-wrap">
-        <div class="progress-bar"></div>
-      </div>
+  <div class="progress-wrap">
+    <div class="progress-bar"></div>
+  </div>
 
-      <div class="download-actions"></div>
+  <div class="download-actions"></div>
 
-    </div>
-  `;
+</div>
+`;
 
-  document.getElementById("downloads").prepend(container);
+document.getElementById("downloads").prepend(container);
 
   return container;
 
