@@ -1,34 +1,65 @@
-
 async function downloadVideo(){
+
   const url = document.getElementById("url").value;
   const quality = document.getElementById("quality").value;
   const status = document.getElementById("status");
+  const button = document.querySelector(".download-main-btn");
 
-  status.innerHTML = "Baixando vídeo...";
+  if(!url){
+    status.innerHTML = "Cole uma URL válida.";
+    return;
+  }
+
+  button.innerHTML = "Convertendo...";
+  button.disabled = true;
+
+  status.innerHTML = `
+    ⏳ Baixando vídeo...<br><br>
+    Isso pode levar alguns minutos dependendo do tamanho.
+  `;
 
   try{
+
     const req = await fetch("/api/download",{
       method:"POST",
       headers:{
         "Content-Type":"application/json"
       },
-      body:JSON.stringify({url,quality})
+      body:JSON.stringify({
+        url,
+        quality
+      })
     });
 
     const data = await req.json();
 
     if(data.download){
+
       status.innerHTML = `
-        Conversão concluída.<br><br>
-        <a href="${data.download}" download style="color:#ff3355;">
-          Clique aqui para baixar
+        ✅ Conversão concluída.<br><br>
+
+        <a href="${data.download}" download>
+          Clique aqui para baixar o vídeo
         </a>
       `;
+
     }else{
-      status.innerHTML = "Falha no download.";
+
+      status.innerHTML = `
+        ❌ Falha ao converter vídeo.
+      `;
+
     }
 
-  }catch(e){
-    status.innerHTML = "Erro: " + e.message;
+  }catch(err){
+
+    status.innerHTML = `
+      ❌ ${err.message}
+    `;
+
   }
+
+  button.innerHTML = "⬇ Baixar Vídeo MP4";
+  button.disabled = false;
+
 }
