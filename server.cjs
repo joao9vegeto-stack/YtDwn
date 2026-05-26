@@ -208,7 +208,6 @@ emitProgress({
   download: `/download/${path.basename(finalPath)}`
 });
 
-  const files = fs.readdirSync(downloadsDir);
 
   const mergedFile = files.find(
     (f) =>
