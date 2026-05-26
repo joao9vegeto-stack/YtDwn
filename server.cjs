@@ -2,234 +2,170 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
+const http = require("http");
+
+const { Server } = require("socket.io");
+
+const YTDlpWrap = require("yt-dlp-wrap").default;
 
 const app = express();
 
-const PORT = process.env.PORT || 7860;
+const server = http.createServer(app);
 
-/*
-========================================
-MIDDLEWARES
-========================================
-*/
+const io = new Server(server,{
+  cors:{
+    origin:"*"
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+
+const ytDlp = new YTDlpWrap();
 
 app.use(cors());
 
-app.use(express.json({
-  limit: "10mb"
-}));
+app.use(express.json());
 
-app.use(express.urlencoded({
-  extended: true
-}));
+app.use(express.static(__dirname));
 
-/*
-========================================
-SERVIR FRONTEND
-========================================
-*/
+const downloadsDir = path.join(__dirname,"downloads");
 
-app.use(express.static(path.join(__dirname, "public")));
-
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
-
-/*
-========================================
-PASTA DOWNLOADS
-========================================
-*/
-
-const downloadsDir = path.join(__dirname, "public", "downloads");
-
-if (!fs.existsSync(downloadsDir)) {
+if(!fs.existsSync(downloadsDir)){
   fs.mkdirSync(downloadsDir);
 }
 
-app.use("/downloads", express.static(downloadsDir));
+app.use("/downloads",express.static(downloadsDir));
 
-/*
-========================================
-ROTAS BÁSICAS
-========================================
-*/
+let busy = false;
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+app.post("/api/download", async(req,res)=>{
 
-app.get("/health", (req, res) => {
-  res.json({
-    status: "online"
-  });
-});
+  if(busy){
 
-app.get("/status", (req, res) => {
-  res.json({
-    running: true,
-    port: PORT
-  });
-});
+    return res.status(429).json({
+      error:"Servidor ocupado. Aguarde o download atual terminar."
+    });
 
-app.get("/api/test", (req, res) => {
-  res.json({
-    ok: true
-  });
-});
+  }
 
-/*
-========================================
-DOWNLOAD YOUTUBE
-========================================
-*/
+  busy = true;
 
-app.post("/api/download", async (req, res) => {
+  const { url, quality } = req.body;
 
-  try {
+  const id = Date.now().toString();
 
-    const { url, quality } = req.body;
+  try{
 
-    if (!url) {
-      return res.status(400).json({
-        error: "URL inválida"
-      });
-    }
+    const info = await ytDlp.getVideoInfo(url);
 
-    const id = Date.now().toString();
+    const title = info.title || "Vídeo";
 
-    const outputTemplate = path.join(
-      downloadsDir,
-      `${id}.%(ext)s`
-    );
+    const thumbnail =
+      info.thumbnail ||
+      (info.thumbnails?.length
+        ? info.thumbnails[info.thumbnails.length - 1].url
+        : "");
 
-    /*
-    ========================================
-    FORMATOS
-    ========================================
-    */
+    const output = path.join(downloadsDir,`${id}.mp4`);
 
-    let format = "bv*+ba/b";
+    io.emit("progress",{
+      id,
+      title,
+      thumbnail,
+      stage:"downloading",
+      percent:0
+    });
 
-    if (quality === "720") {
-      format = "bv*[height<=720]+ba/b";
-    }
-
-    if (quality === "1080") {
-      format = "bv*[height<=1080]+ba/b";
-    }
-
-    /*
-    ========================================
-    EXECUTAR YT-DLP
-    ========================================
-    */
-
-    const yt = spawn("yt-dlp", [
+    const yt = ytDlp.exec([
+      url,
       "-f",
-      format,
-
+      `bestvideo[height<=${quality}]+bestaudio/best`,
       "--merge-output-format",
       "mp4",
-
-      "--no-playlist",
-
       "-o",
-      outputTemplate,
-
-      url
+      output
     ]);
 
-    let stderr = "";
+    yt.on("progress",(progress)=>{
 
-    yt.stdout.on("data", (data) => {
-      console.log(data.toString());
-    });
-
-    yt.stderr.on("data", (data) => {
-      stderr += data.toString();
-      console.log(data.toString());
-    });
-
-    yt.on("close", (code) => {
-
-      if (code !== 0) {
-
-        return res.status(500).json({
-          error: "Erro ao baixar vídeo",
-          details: stderr
-        });
-
-      }
-
-      /*
-      ========================================
-      ENCONTRAR ARQUIVO GERADO
-      ========================================
-      */
-
-      const files = fs.readdirSync(downloadsDir);
-
-      const videoFile = files.find(file =>
-        file.startsWith(id + ".")
-      );
-
-      if (!videoFile) {
-
-        return res.status(500).json({
-          error: "Arquivo não encontrado"
-        });
-
-      }
-
-      /*
-      ========================================
-      RETORNAR LINK
-      ========================================
-      */
-
-      return res.json({
-        success: true,
-        file: videoFile,
-        download: `/downloads/${videoFile}`
+      io.emit("progress",{
+        id,
+        title,
+        thumbnail,
+        stage:"downloading",
+        percent:Math.floor(progress.percent || 0),
+        speed:progress.currentSpeed,
+        eta:progress.eta
       });
 
     });
 
-  } catch (err) {
+    yt.on("close",()=>{
 
-    console.error(err);
+      let convert = 0;
+
+      const interval = setInterval(()=>{
+
+        convert += 5;
+
+        io.emit("progress",{
+          id,
+          title,
+          thumbnail,
+          stage:"converting",
+          percent:convert
+        });
+
+        if(convert >= 100){
+
+          clearInterval(interval);
+
+          io.emit("progress",{
+            id,
+            title,
+            thumbnail,
+            stage:"finished",
+            percent:100,
+            download:`/downloads/${id}.mp4`
+          });
+
+          busy = false;
+
+        }
+
+      },300);
+
+    });
+
+    yt.on("error",(err)=>{
+
+      io.emit("progress",{
+        id,
+        stage:"error",
+        message:"Erro ao processar vídeo"
+      });
+
+      busy = false;
+
+    });
+
+    res.json({
+      success:true
+    });
+
+  }catch(err){
+
+    busy = false;
 
     return res.status(500).json({
-      error: "Erro interno"
+      error:"Erro ao obter vídeo"
     });
 
   }
 
 });
 
-/*
-========================================
-404
-========================================
-*/
-
-app.use((req, res) => {
-
-  res.status(404).json({
-    error: "Rota não encontrada"
-  });
-
-});
-
-/*
-========================================
-START
-========================================
-*/
-
-app.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT,"0.0.0.0",()=>{
 
   console.log(`Servidor rodando na porta ${PORT}`);
 
