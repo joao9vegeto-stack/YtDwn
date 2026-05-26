@@ -1,16 +1,279 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YT Downloader</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YT Downloader</title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top, rgba(255, 0, 60, 0.18), transparent 35%),
+        radial-gradient(circle at bottom, rgba(255, 0, 60, 0.08), transparent 35%),
+        #050505;
+      color: #fff;
+    }
+
+    .bg-glow {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at top, rgba(255, 0, 60, 0.18), transparent 45%);
+      z-index: -1;
+    }
+
+    .app {
+      width: min(760px, 100%);
+      margin: 0 auto;
+      padding: 28px 18px 56px;
+    }
+
+    .topbar {
+      margin-bottom: 24px;
+    }
+
+    .logo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #ff003c, #ff2356);
+      box-shadow: 0 10px 28px rgba(255, 0, 60, 0.22);
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    h1 {
+      font-size: 38px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      background: linear-gradient(90deg, #ff003c, #ff5e7f);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .topbar p {
+      margin-top: 10px;
+      color: #9b9b9b;
+      line-height: 1.45;
+      font-size: 15px;
+    }
+
+    .hero-card {
+      background: rgba(16, 16, 16, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 28px;
+      padding: 18px;
+      box-shadow: 0 12px 38px rgba(0, 0, 0, 0.35);
+      margin-bottom: 24px;
+    }
+
+    .input-group {
+      display: grid;
+      gap: 14px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      height: 60px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      background: #181818;
+      color: #fff;
+      padding: 0 18px;
+      font-size: 16px;
+      outline: none;
+    }
+
+    input::placeholder {
+      color: #707070;
+    }
+
+    .search-btn,
+    .download-btn,
+    .clear-btn {
+      border: none;
+      outline: none;
+      cursor: pointer;
+      transition: .2s ease;
+    }
+
+    .search-btn {
+      height: 64px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #ff003c, #ff2356);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 800;
+      box-shadow: 0 10px 28px rgba(255, 0, 60, 0.25);
+    }
+
+    .search-btn:disabled {
+      opacity: .75;
+      cursor: not-allowed;
+    }
+
+    .search-btn:active,
+    .download-btn:active,
+    .clear-btn:active {
+      transform: scale(.98);
+    }
+
+    .downloads-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 4px 0 18px;
+      gap: 12px;
+    }
+
+    .downloads-title {
+      font-size: 26px;
+      letter-spacing: -0.03em;
+      font-weight: 800;
+    }
+
+    .clear-btn {
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: #f1f1f1;
+      color: #161616;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    #downloads {
+      display: grid;
+      gap: 18px;
+    }
+
+    .download-item {
+      background: rgba(15, 15, 15, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 26px;
+      overflow: hidden;
+      box-shadow: 0 12px 38px rgba(0, 0, 0, 0.28);
+    }
+
+    .thumb {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #090909;
+      overflow: hidden;
+    }
+
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .download-content {
+      padding: 18px 18px 20px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: #12311c;
+      color: #18e16e;
+      font-size: 14px;
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .video-title {
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 12px;
+      word-break: break-word;
+    }
+
+    .status-text {
+      color: #d1d1d1;
+      line-height: 1.45;
+      font-size: 16px;
+      min-height: 52px;
+    }
+
+    .done {
+      color: #18e16e;
+      font-weight: 700;
+    }
+
+    .error {
+      color: #ff6788;
+      font-weight: 700;
+    }
+
+    .progress-wrap {
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      background: #232323;
+      overflow: hidden;
+      margin-top: 20px;
+    }
+
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #18e16e, #4ff0a0);
+      transition: width .25s ease;
+    }
+
+    .download-actions {
+      margin-top: 18px;
+    }
+
+    .download-btn {
+      width: 100%;
+      height: 60px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #ff003c, #ff2356);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    @media (max-width: 640px) {
+      h1 { font-size: 32px; }
+      .downloads-title { font-size: 22px; }
+      .video-title { font-size: 20px; }
+    }
+  </style>
 </head>
 <body>
 
@@ -21,7 +284,6 @@
   <div class="topbar">
     <div class="logo-wrap">
       <div class="logo">▶</div>
-
       <div>
         <h1>YT Downloader</h1>
         <p>
@@ -33,12 +295,13 @@
   </div>
 
   <div class="hero-card">
-
     <div class="input-group">
-
       <input
         id="url"
         placeholder="Cole o link do YouTube"
+        autocomplete="off"
+        autocapitalize="none"
+        spellcheck="false"
       >
 
       <select id="quality">
@@ -50,31 +313,22 @@
       <button class="search-btn" onclick="startDownload()">
         Baixar e Converter
       </button>
-
     </div>
-
   </div>
 
   <div class="downloads-header">
-
-    <h2 class="downloads-title">
-      Downloads
-    </h2>
-
-    <button onclick="clearDownloads()" class="clear-btn">
-      Limpar
-    </button>
-
+    <h2 class="downloads-title">Downloads</h2>
+    <button onclick="clearDownloads()" class="clear-btn">Limpar</button>
   </div>
 
   <div id="downloads"></div>
-
 </div>
 
 <script>
 const socket = io();
 
 let downloads = {};
+let busy = false;
 
 const downloadButton = document.querySelector(".search-btn");
 
@@ -90,23 +344,25 @@ function clearDownloads() {
 }
 
 socket.on("progress", (data) => {
-  console.log("PROGRESS:", data);
-
-  let item = downloads[data.id];
+  const id = data.id;
+  let item = downloads[id];
 
   if (!item) {
     item = createDownloadCard(data);
-    downloads[data.id] = item;
+    downloads[id] = item;
   }
 
   updateCard(item, data);
 
   if (data.stage === "finished" || data.stage === "error") {
+    busy = false;
     setButtonState(false, "Baixar e Converter");
   }
 });
 
 async function startDownload() {
+  if (busy) return;
+
   const url = document.getElementById("url").value.trim();
   const quality = document.getElementById("quality").value;
 
@@ -115,9 +371,8 @@ async function startDownload() {
     return;
   }
 
-  if (downloadButton && downloadButton.disabled) {
-    return;
-  }
+  busy = true;
+  setButtonState(true, "Processando...");
 
   const clientId = "job_" + Date.now();
 
@@ -136,8 +391,6 @@ async function startDownload() {
     eta: "--"
   });
 
-  setButtonState(true, "Processando...");
-
   try {
     const req = await fetch("/api/download", {
       method: "POST",
@@ -153,15 +406,13 @@ async function startDownload() {
 
     const data = await req.json();
 
-    console.log("API:", data);
-
     if (!req.ok || data.error) {
       updateCard(card, {
         stage: "error",
         message: data.error || "Erro ao iniciar download"
       });
+      busy = false;
       setButtonState(false, "Baixar e Converter");
-      return;
     }
   } catch (err) {
     console.error(err);
@@ -171,6 +422,7 @@ async function startDownload() {
       message: "Erro ao iniciar download"
     });
 
+    busy = false;
     setButtonState(false, "Baixar e Converter");
   }
 }
@@ -186,10 +438,7 @@ function createDownloadCard(data) {
 </div>
 
 <div class="download-content">
-
-  <div class="badge">
-    H264
-  </div>
+  <div class="badge">H264</div>
 
   <div class="video-title">
     ${data.title || "Processando vídeo"}
@@ -202,7 +451,6 @@ function createDownloadCard(data) {
   </div>
 
   <div class="download-actions"></div>
-
 </div>
 `;
 
@@ -217,11 +465,12 @@ function updateCard(card, data) {
 
   if (data.thumbnail) {
     const img = card.querySelector("img");
-    img.src = data.thumbnail;
+    if (img) img.src = data.thumbnail;
   }
 
   if (data.title) {
-    card.querySelector(".video-title").innerText = data.title;
+    const titleEl = card.querySelector(".video-title");
+    if (titleEl) titleEl.innerText = data.title;
   }
 
   if (data.stage === "starting") {
@@ -258,20 +507,16 @@ function updateCard(card, data) {
 
   if (data.stage === "finished") {
     status.innerHTML = `
-      <span class="done">
-        Conversão finalizada com sucesso
-      </span>
+      <span class="done">Conversão finalizada com sucesso</span>
     `;
-
     bar.style.width = "100%";
 
     actions.innerHTML = `
-      <button class="download-btn" type="button">
-        Baixar MP4
-      </button>
+      <button class="download-btn" type="button">Baixar MP4</button>
     `;
 
-    actions.querySelector("button").onclick = () => {
+    const btn = actions.querySelector("button");
+    btn.onclick = () => {
       const a = document.createElement("a");
       a.href = data.download;
       a.download = "";
@@ -284,9 +529,7 @@ function updateCard(card, data) {
 
   if (data.stage === "error") {
     status.innerHTML = `
-      <span class="error">
-        ${data.message}
-      </span>
+      <span class="error">${data.message}</span>
     `;
   }
 }
