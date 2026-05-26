@@ -42,7 +42,7 @@ PASTA DOWNLOADS
 ========================================
 */
 
-const downloadsDir = path.join(__dirname, "downloads");
+const downloadsDir = path.join(__dirname, "public", "downloads");
 
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
