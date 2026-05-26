@@ -209,17 +209,6 @@ emitProgress({
 });
 
 
-  const mergedFile = files.find(
-    (f) =>
-      f.startsWith(sourceBase) &&
-      f.endsWith(".mp4")
-  );
-
-  if (!mergedFile) {
-    throw new Error("MP4 mesclado não encontrado");
-  }
-
-  const mergedPath = path.join(downloadsDir, mergedFile);
 
   await waitForFile(mergedPath);
 
