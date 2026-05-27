@@ -1,16 +1,20 @@
-const socket = io();
-const STORAGE_KEY = 'ytdown_jobs_v8';
-const downloadsRoot = document.getElementById('downloads');
-const startBtn = document.getElementById('startBtn');
-const clearBtn = document.getElementById('clear-history');
-const modal = document.getElementById('report-modal');
-const reportTitle = document.getElementById('report-title');
-const reportBody = document.getElementById('report-body');
+const STORAGE_KEY = "ytdown_jobs_v9";
+
+const downloadsRoot = document.getElementById("downloads");
+const startBtn = document.getElementById("startBtn");
+const clearBtn = document.getElementById("clearBtn");
+const urlInput = document.getElementById("url");
+const qualitySelect = document.getElementById("quality");
+
+const reportModal = document.getElementById("reportModal");
+const reportContent = document.getElementById("reportContent");
+const closeReportBtn = document.getElementById("closeReportBtn");
 
 let store = loadStore();
-let cards = {};
-let pollers = {};
-let busy = false;
+const cards = {};
+const polling = {};
+const mergeTimers = {};
+const uiState = {};
 
 function loadStore() {
   try {
@@ -24,256 +28,460 @@ function loadStore() {
 function saveStore() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {}
+  } catch (err) {
+    console.error(err);
+  }
 }
 
-function uuidLike() {
-  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+function genId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+
   return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function refreshBusy() {
-  busy = Object.values(store).some((job) => !['finished', 'error'].includes(job.stage));
-  startBtn.disabled = busy;
-  startBtn.textContent = busy ? 'Processando...' : 'Baixar e Converter';
+function activeJobCount() {
+  return Object.values(store).filter((job) => !["finished", "error"].includes(job.stage)).length;
+}
+
+function refreshButtonState() {
+  const active = activeJobCount() > 0;
+  startBtn.disabled = active;
+  startBtn.textContent = active ? "Processando..." : "Baixar e Converter";
 }
 
 function clearDownloads() {
-  Object.values(pollers).forEach(clearInterval);
-  pollers = {};
+  for (const timer of Object.values(polling)) clearInterval(timer);
+  for (const timer of Object.values(mergeTimers)) clearInterval(timer);
+
   store = {};
-  cards = {};
-  downloadsRoot.innerHTML = '';
+  Object.keys(cards).forEach((key) => delete cards[key]);
+  Object.keys(polling).forEach((key) => delete polling[key]);
+  Object.keys(mergeTimers).forEach((key) => delete mergeTimers[key]);
+  Object.keys(uiState).forEach((key) => delete uiState[key]);
+
   saveStore();
-  refreshBusy();
+  downloadsRoot.innerHTML = "";
+  refreshButtonState();
 }
 
 function persist(job) {
   if (!job || !job.id) return;
+
   const prev = store[job.id] || {};
   store[job.id] = {
     ...prev,
     ...job,
     startedAt: prev.startedAt || job.startedAt || Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
   };
+
   saveStore();
-  refreshBusy();
+  refreshButtonState();
 }
 
 function getCard(jobId) {
   if (cards[jobId]) return cards[jobId];
-  const el = document.createElement('article');
-  el.className = 'download-item';
+
+  const el = document.createElement("article");
+  el.className = "download-item";
   el.dataset.jobId = jobId;
   el.innerHTML = `
-    <div class="thumb"><img alt=""></div>
+    <div class="thumb">
+      <img alt="">
+    </div>
     <div class="download-content">
       <div class="badge">H264</div>
       <div class="video-title">Preparando download...</div>
       <div class="status-text"></div>
-      <div class="progress-wrap"><div class="progress-bar"></div></div>
+      <div class="progress-wrap">
+        <div class="progress-bar"></div>
+      </div>
       <div class="download-actions"></div>
     </div>
   `;
+
   downloadsRoot.prepend(el);
-  cards[jobId] = el;
-  return el;
+
+  cards[jobId] = {
+    element: el,
+    img: el.querySelector("img"),
+    title: el.querySelector(".video-title"),
+    status: el.querySelector(".status-text"),
+    bar: el.querySelector(".progress-bar"),
+    actions: el.querySelector(".download-actions"),
+  };
+
+  return cards[jobId];
 }
 
-function stageLabel(job) {
-  if (job.stage === 'starting') return 'Preparando download...';
-  if (job.stage === 'downloading') return `Baixando... ${Math.round(job.progress || 0)}%`;
-  if (job.stage === 'processing') return `Mesclando formatos... ${Math.round(job.progress || 0)}%`;
-  if (job.stage === 'finished' || job.done) return 'Concluído';
-  if (job.stage === 'error' || job.error) return job.error || 'Erro';
-  return 'Processando...';
+function stopMergeAnimation(jobId) {
+  if (mergeTimers[jobId]) {
+    clearInterval(mergeTimers[jobId]);
+    delete mergeTimers[jobId];
+  }
+  delete uiState[jobId];
 }
 
-function updateCard(job) {
-  const el = getCard(job.id);
-  const img = el.querySelector('img');
-  const titleEl = el.querySelector('.video-title');
-  const statusEl = el.querySelector('.status-text');
-  const bar = el.querySelector('.progress-bar');
-  const actions = el.querySelector('.download-actions');
+function startMergeAnimation(jobId) {
+  if (mergeTimers[jobId]) return;
 
-  if (job.thumbnail) img.src = job.thumbnail;
-  if (job.title) titleEl.textContent = job.title;
+  uiState[jobId] = uiState[jobId] || {};
+  const timer = setInterval(() => {
+    const job = store[jobId];
+    if (!job || job.stage !== "processing") {
+      stopMergeAnimation(jobId);
+      return;
+    }
 
-  const p = Math.max(0, Math.min(100, Number(job.progress || 0)));
-  const speed = job.speed || '--';
-  const eta = job.eta || '--';
+    const current = Number.isFinite(uiState[jobId].visualProgress)
+      ? uiState[jobId].visualProgress
+      : Math.max(job.progress || 0, 95);
 
-  if (job.stage === 'starting') {
-    statusEl.innerHTML = `Preparando download...<br>${speed} • ETA ${eta}`;
-    bar.style.width = '0%';
-    actions.innerHTML = '';
-  } else if (job.stage === 'downloading') {
-    statusEl.innerHTML = `Baixando... ${p}%<br>${speed} • ETA ${eta}`;
-    bar.style.width = `${p}%`;
-    actions.innerHTML = '';
-  } else if (job.stage === 'processing') {
-    statusEl.innerHTML = `Mesclando formatos...<br>${p}% concluído • ETA ${eta}`;
-    bar.style.width = `${p}%`;
-    actions.innerHTML = '';
-  } else if (job.stage === 'finished' || job.done) {
-    statusEl.innerHTML = `<span class="done">Concluído</span>`;
-    bar.style.width = '100%';
-    actions.innerHTML = `
-      <a class="download-btn" href="${job.file || `/api/file/${job.id}`}" download>Baixar MP4</a>
-      <button class="download-btn small-btn" type="button" data-report="${job.id}">Relatório MP4</button>
+    const next = Math.min(99, current + Math.max(0.25, (99 - current) * 0.12));
+    uiState[jobId].visualProgress = next;
+    renderJob({ ...job, visualProgress: next }, false);
+  }, 300);
+
+  mergeTimers[jobId] = timer;
+}
+
+function renderJob(job, shouldPersist = true) {
+  if (!job || !job.id) return;
+
+  const card = getCard(job.id);
+
+  if (job.thumbnail) card.img.src = job.thumbnail;
+  if (job.title) card.title.textContent = job.title;
+
+  const progress =
+    Number.isFinite(job.visualProgress)
+      ? job.visualProgress
+      : Number.isFinite(job.progress)
+        ? job.progress
+        : 0;
+
+  if (job.stage === "starting") {
+    card.status.innerHTML = `Preparando download...<br>${job.speed || "Conectando..."} • ETA ${job.eta || "--"}`;
+    card.bar.style.width = "0%";
+    card.actions.innerHTML = "";
+  }
+
+  if (job.stage === "downloading") {
+    card.status.innerHTML = `Baixando... ${Math.floor(progress)}%<br>${job.speed || "--"} • ETA ${job.eta || "--"}`;
+    card.bar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+    card.actions.innerHTML = "";
+  }
+
+  if (job.stage === "processing") {
+    card.status.innerHTML = `Mesclando formatos...<br>${Math.floor(progress)}% concluído • ETA ${job.eta || "--"}`;
+    card.bar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+    card.actions.innerHTML = "";
+  }
+
+  if (job.stage === "finished" || job.done) {
+    stopMergeAnimation(job.id);
+    card.status.innerHTML = `<span class="done">Concluído</span>`;
+    card.bar.style.width = "100%";
+
+    const downloadUrl = job.file || `/api/file/${job.id}`;
+    const reportUrl = job.report || `/api/report/${job.id}`;
+
+    card.actions.innerHTML = `
+      <a class="download-btn" href="${downloadUrl}" download>Baixar MP4</a>
+      <button type="button" class="secondary-btn" data-report="${reportUrl}">Relatório do MP4</button>
     `;
-  } else if (job.stage === 'error' || job.error) {
-    statusEl.innerHTML = `<span class="error">${job.error || 'Erro ao processar vídeo'}</span>`;
-    actions.innerHTML = '';
+
+    const reportBtn = card.actions.querySelector("[data-report]");
+    reportBtn.addEventListener("click", () => openReport(job.id));
   }
 
-  const reportBtn = actions.querySelector('[data-report]');
-  if (reportBtn) {
-    reportBtn.onclick = () => openReport(job.id, job.title || 'Relatório do MP4');
+  if (job.stage === "error" || job.error) {
+    stopMergeAnimation(job.id);
+    card.status.innerHTML = `<span class="error">${job.error || "Erro ao processar vídeo"}</span>`;
+    card.actions.innerHTML = "";
+  }
+
+  if (shouldPersist) {
+    persist(job);
   }
 }
 
-function stopPoll(jobId) {
-  if (pollers[jobId]) {
-    clearInterval(pollers[jobId]);
-    delete pollers[jobId];
+function stopPolling(jobId) {
+  if (polling[jobId]) {
+    clearInterval(polling[jobId]);
+    delete polling[jobId];
   }
 }
 
 async function pollJob(jobId) {
   try {
-    const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+    const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+    });
+
     if (!res.ok) {
-      if (store[jobId] && !['finished', 'error'].includes(store[jobId].stage)) {
-        store[jobId].stage = 'error';
-        store[jobId].error = 'Job não encontrado';
-        updateCard(store[jobId]);
-        persist(store[jobId]);
+      const job = store[jobId];
+      if (job && !["finished", "error"].includes(job.stage)) {
+        renderJob({
+          ...job,
+          stage: "error",
+          error: "Job não encontrado",
+        });
       }
-      stopPoll(jobId);
+      stopPolling(jobId);
       return;
     }
+
     const data = await res.json();
-    const merged = { ...(store[jobId] || {}), ...data };
-    updateCard(merged);
-    persist(merged);
-    if (data.stage === 'finished' || data.done || data.error) stopPoll(jobId);
+    const merged = {
+      ...(store[jobId] || {}),
+      ...data,
+    };
+
+    if (merged.stage === "processing") {
+      startMergeAnimation(jobId);
+      if (!uiState[jobId] || !Number.isFinite(uiState[jobId].visualProgress)) {
+        uiState[jobId] = uiState[jobId] || {};
+        uiState[jobId].visualProgress = Math.max(merged.progress || 0, 95);
+      }
+    } else {
+      stopMergeAnimation(jobId);
+    }
+
+    renderJob(merged);
+
+    if (merged.stage === "finished" || merged.done || merged.error) {
+      stopPolling(jobId);
+    }
   } catch (err) {
     console.error(err);
   }
 }
 
-function startPoll(jobId) {
-  stopPoll(jobId);
+function startPolling(jobId) {
+  if (polling[jobId]) return;
   pollJob(jobId);
-  pollers[jobId] = setInterval(() => pollJob(jobId), 1000);
+  polling[jobId] = setInterval(() => pollJob(jobId), 1000);
+}
+
+function migrateJobId(oldId, newId) {
+  if (oldId === newId) return;
+
+  const oldJob = store[oldId];
+  if (!oldJob) return;
+
+  store[newId] = { ...oldJob, id: newId };
+  delete store[oldId];
+
+  if (cards[oldId]) {
+    cards[newId] = cards[oldId];
+    delete cards[oldId];
+    cards[newId].element.dataset.jobId = newId;
+  }
+
+  if (polling[oldId]) {
+    polling[newId] = polling[oldId];
+    delete polling[oldId];
+  }
+
+  if (mergeTimers[oldId]) {
+    mergeTimers[newId] = mergeTimers[oldId];
+    delete mergeTimers[oldId];
+  }
+
+  if (uiState[oldId]) {
+    uiState[newId] = uiState[oldId];
+    delete uiState[oldId];
+  }
+
+  saveStore();
 }
 
 async function startDownload() {
-  if (busy) return;
-  const url = document.getElementById('url').value.trim();
-  const quality = document.getElementById('quality').value;
+  if (activeJobCount() > 0) return;
+
+  const url = urlInput.value.trim();
+  const quality = qualitySelect.value;
+
   if (!url) {
-    alert('Cole um link');
+    alert("Cole um link");
     return;
   }
 
-  const clientId = uuidLike();
-  const job = {
+  const clientId = genId();
+
+  const optimisticJob = {
     id: clientId,
-    title: 'Preparando download...',
-    thumbnail: '',
-    stage: 'starting',
+    title: "Preparando download...",
+    thumbnail: "",
+    stage: "starting",
+    status: "Preparando download...",
     progress: 0,
-    speed: 'Conectando...',
-    eta: '--',
+    speed: "Conectando...",
+    eta: "--",
     done: false,
-    file: '',
-    error: '',
-    startedAt: Date.now()
+    file: "",
+    report: "",
+    error: "",
+    startedAt: Date.now(),
   };
 
-  updateCard(job);
-  persist(job);
+  renderJob(optimisticJob);
+  startPolling(clientId);
+
+  console.log("POST /api/download", { url, quality, clientId });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const res = await fetch('/api/download', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, quality, clientId })
+    const res = await fetch("/api/download", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        quality,
+        clientId,
+      }),
+      signal: controller.signal,
     });
-    const data = await res.json();
+
+    clearTimeout(timeout);
+
+    const data = await res.json().catch(() => ({}));
+
     if (!res.ok || data.error) {
-      job.stage = 'error';
-      job.error = data.error || 'Erro ao iniciar download';
-      updateCard(job);
-      persist(job);
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    const returnedId = data.jobId || clientId;
+
+    if (returnedId !== clientId) {
+      migrateJobId(clientId, returnedId);
+    }
+
+    persist({ ...optimisticJob, id: returnedId });
+    startPolling(returnedId);
+  } catch (err) {
+    clearTimeout(timeout);
+    console.error(err);
+
+    renderJob({
+      ...optimisticJob,
+      stage: "error",
+      error:
+        err.name === "AbortError"
+          ? "Tempo limite na requisição"
+          : "Erro ao iniciar download",
+    });
+    stopPolling(clientId);
+  }
+}
+
+function formatRow(label, value) {
+  return `
+    <div class="report-item">
+      <span class="report-label">${label}</span>
+      <div class="report-value">${value ?? "--"}</div>
+    </div>
+  `;
+}
+
+async function openReport(jobId) {
+  reportModal.classList.remove("hidden");
+  reportModal.setAttribute("aria-hidden", "false");
+  reportContent.innerHTML = `<div class="report-raw">Carregando relatório...</div>`;
+
+  try {
+    const res = await fetch(`/api/report/${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      reportContent.innerHTML = `<div class="report-raw">Erro: ${data.error || "falha ao gerar relatório"}</div>`;
       return;
     }
 
-    const jobId = data.id || clientId;
-    job.id = jobId;
-    persist(job);
-    updateCard(job);
-    startPoll(jobId);
+    const compatibility = data.compatibility || {};
+    const video = data.video || {};
+    const audio = data.audio || {};
+
+    const summaryLine = `
+      <div class="report-summary">
+        <div class="report-pill">${compatibility.afterEffectsFriendly ? "Compatível com After Effects" : "Requer atenção"}</div>
+      </div>
+    `;
+
+    const grid = `
+      <div class="report-grid">
+        ${formatRow("Arquivo", data.fileName)}
+        ${formatRow("Tamanho", data.fileSize)}
+        ${formatRow("Container", `${data.container} (${data.containerLong})`)}
+        ${formatRow("Duração", data.duration)}
+        ${formatRow("Bitrate total", data.bitrate)}
+        ${formatRow("Vídeo codec", `${video.codec} (${video.codecLong})`)}
+        ${formatRow("Perfil", video.profile)}
+        ${formatRow("Resolução", video.resolution)}
+        ${formatRow("FPS", video.fpsText)}
+        ${formatRow("Pixel format", video.pixFmt)}
+        ${formatRow("Áudio codec", `${audio.codec} (${audio.codecLong})`)}
+        ${formatRow("Sample rate", audio.sampleRate)}
+        ${formatRow("Canais", audio.channels != null ? String(audio.channels) : "--")}
+        ${formatRow("Layout", audio.channelLayout)}
+        ${formatRow("Compatibilidade AE", compatibility.afterEffectsFriendly ? "Sim" : "Não garantido")}
+        ${formatRow("H.264", compatibility.h264 ? "Sim" : "Não")}
+        ${formatRow("AAC", compatibility.aac ? "Sim" : "Não")}
+      </div>
+    `;
+
+    const rawJson = `
+${JSON.stringify(data, null, 2)}
+`;
+
+    reportContent.innerHTML = `
+      ${summaryLine}
+      ${grid}
+      <div class="report-raw">${rawJson.replace(/</g, "&lt;")}</div>
+    `;
   } catch (err) {
     console.error(err);
-    job.stage = 'error';
-    job.error = 'Erro ao iniciar download';
-    updateCard(job);
-    persist(job);
+    reportContent.innerHTML = `<div class="report-raw">Falha ao carregar relatório.</div>`;
   }
 }
 
-async function openReport(jobId, title) {
-  reportTitle.textContent = title || 'Relatório do MP4';
-  reportBody.textContent = 'Carregando...';
-  modal.classList.remove('hidden');
-
-  try {
-    const res = await fetch(`/api/report/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      reportBody.textContent = data.error || 'Não foi possível gerar o relatório.';
-      return;
-    }
-
-    reportBody.textContent = JSON.stringify(data, null, 2);
-  } catch (err) {
-    reportBody.textContent = err.message || 'Erro ao carregar relatório.';
-  }
+function closeReport() {
+  reportModal.classList.add("hidden");
+  reportModal.setAttribute("aria-hidden", "true");
 }
 
-function closeModal() {
-  modal.classList.add('hidden');
-}
-
-socket.on('progress', (data) => {
-  if (!data || !data.id) return;
-  const merged = { ...(store[data.id] || {}), ...data };
-  updateCard(merged);
-  persist(merged);
-  if (!['finished', 'error'].includes(merged.stage)) startPoll(merged.id);
-  if (merged.stage === 'finished' || merged.done || merged.error) stopPoll(merged.id);
-});
-
-modal.addEventListener('click', (e) => {
-  if (e.target && e.target.hasAttribute('data-close-modal')) closeModal();
-});
-
-document.getElementById('startBtn').addEventListener('click', startDownload);
-clearBtn.addEventListener('click', clearDownloads);
-
-(function bootstrap() {
+function bootstrap() {
+  downloadsRoot.innerHTML = "";
   const jobs = Object.values(store).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
-  jobs.forEach((job) => {
-    updateCard(job);
-    if (!['finished', 'error'].includes(job.stage)) startPoll(job.id);
-  });
-  refreshBusy();
-})();
-  </script>
-</body>
-</html>
+
+  for (const job of jobs) {
+    renderJob(job, false);
+    if (!["finished", "error"].includes(job.stage)) {
+      startPolling(job.id);
+    }
+  }
+
+  refreshButtonState();
+}
+
+startBtn.addEventListener("click", startDownload);
+clearBtn.addEventListener("click", clearDownloads);
+closeReportBtn.addEventListener("click", closeReport);
+
+reportModal.addEventListener("click", (event) => {
+  if (event.target && event.target.dataset && event.target.dataset.close) {
+    closeReport();
+  }
+});
+
+bootstrap();
