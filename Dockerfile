@@ -1,22 +1,18 @@
-FROM node:20-bookworm
+FROM node:20
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    aria2 \
-    python3 \
-    python3-pip \
+    yt-dlp \
     curl \
+    ca-certificates \
   && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install --no-cache-dir yt-dlp
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm install --omit=dev
 
 COPY . .
 
 EXPOSE 3000
-
-CMD ["npm", "start"]
+CMD ["node", "server.cjs"]
