@@ -19,25 +19,45 @@ const PORT = process.env.PORT || 3000;
 const ytDlp = new YTDlpWrap();
 
 const downloadsDir = path.join(__dirname, "downloads");
+const jobs = Object.create(null);
 
-app.use(compression());
+let busy = false;
+
+function ensureDownloadsDir() {
+  if (!fs.existsSync(downloadsDir)) {
+    fs.mkdirSync(downloadsDir, { recursive: true });
+  }
+}
+
+ensureDownloadsDir();
+
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (req.path.startsWith("/downloads/")) {
+        return false;
+      }
+      return compression.filter(req, res);
+    }
+  })
+);
+
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static(path.join(__dirname, "public")));
 
-if (!fs.existsSync(downloadsDir)) {
-  fs.mkdirSync(downloadsDir, { recursive: true });
-}
-
-app.use("/downloads", express.static(downloadsDir, {
-  fallthrough: false,
-  maxAge: 0,
-  setHeaders(res) {
-    res.setHeader("Cache-Control", "no-store");
-  }
-}));
+app.use(
+  "/downloads",
+  express.static(downloadsDir, {
+    fallthrough: false,
+    maxAge: 0,
+    setHeaders(res) {
+      res.setHeader("Cache-Control", "no-store");
+    }
+  })
+);
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -47,20 +67,8 @@ app.get("/health", (req, res) => {
   res.json({ status: "online" });
 });
 
-app.get("/download/:file", (req, res) => {
-  const filePath = path.join(downloadsDir, req.params.file);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("Arquivo não encontrado");
-  }
-
-  return res.download(filePath);
-});
-
-let busy = false;
-
-function emitProgress(payload) {
-  io.emit("progress", payload);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function safeRemove(filePath) {
@@ -86,14 +94,14 @@ function cleanJobFiles(id) {
   }
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function parseEtaToSeconds(eta) {
   if (!eta || eta === "--" || eta === "Unknown") return null;
 
-  const parts = String(eta).trim().split(":").map((n) => Number(n));
+  const parts = String(eta)
+    .trim()
+    .split(":")
+    .map((part) => Number(part));
+
   if (parts.some((n) => Number.isNaN(n))) return null;
 
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -106,16 +114,16 @@ function parseEtaToSeconds(eta) {
 function formatEta(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "--";
 
-  const s = Math.max(0, Math.round(seconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
 
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
 
-  return `${m}:${String(sec).padStart(2, "0")}`;
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
 function parseProgressLine(text) {
@@ -132,23 +140,69 @@ function parseProgressLine(text) {
   };
 }
 
-async function waitForMergedFile(id, timeout = 60000) {
-  const exactPath = path.join(downloadsDir, `${id}.source.mp4`);
-  const deadline = Date.now() + timeout;
+function publicJob(job) {
+  return {
+    id: job.id,
+    url: job.url,
+    quality: job.quality,
+    title: job.title,
+    thumbnail: job.thumbnail,
+    stage: job.stage,
+    percent: Number.isFinite(job.percent) ? job.percent : 0,
+    speed: job.speed || "--",
+    eta: job.eta || "--",
+    download: job.download || "",
+    error: job.error || "",
+    startedAt: job.startedAt || Date.now(),
+    updatedAt: job.updatedAt || Date.now()
+  };
+}
 
-  while (Date.now() < deadline) {
-    if (fs.existsSync(exactPath)) {
-      return exactPath;
+function emitJob(job) {
+  job.updatedAt = Date.now();
+  io.emit("progress", publicJob(job));
+}
+
+function setJob(id, patch) {
+  const job = jobs[id];
+  if (!job) return null;
+  Object.assign(job, patch);
+  emitJob(job);
+  return job;
+}
+
+async function waitForMergedFile(id, job, timeout = 60000) {
+  const start = Date.now();
+  const expectedMs = 5000;
+
+  while (Date.now() - start < timeout) {
+    const exact = path.join(downloadsDir, `${id}.source.mp4`);
+    if (fs.existsSync(exact)) {
+      return exact;
     }
 
     const candidates = fs
       .readdirSync(downloadsDir)
-      .filter((name) => name.startsWith(`${id}.source`) && name.endsWith(".mp4"));
+      .filter((name) => name.startsWith(`${id}.source`) && name.endsWith(".mp4"))
+      .sort((a, b) => a.length - b.length);
 
-    if (candidates.length) {
-      candidates.sort((a, b) => a.length - b.length);
-      return path.join(downloadsDir, candidates[0]);
+    if (candidates.length > 0) {
+      const candidatePath = path.join(downloadsDir, candidates[0]);
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
     }
+
+    const elapsed = Date.now() - start;
+    const percent = Math.min(99, Math.max(0, Math.round((elapsed / expectedMs) * 100)));
+    const etaSeconds = Math.max(0, (expectedMs - elapsed) / 1000);
+
+    setJob(id, {
+      stage: "merging",
+      percent,
+      speed: "Mesclando formatos...",
+      eta: formatEta(etaSeconds)
+    });
 
     await sleep(250);
   }
@@ -156,229 +210,157 @@ async function waitForMergedFile(id, timeout = 60000) {
   throw new Error("MP4 mesclado não encontrado");
 }
 
-function runFfmpegCfr30(inputPath, outputPath, durationSec, meta) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "-y",
-      "-i", inputPath,
-      "-vf", "fps=30",
-      "-fps_mode", "cfr",
-      "-r", "30",
-      "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-profile:v", "high",
-      "-level", "4.0",
-      "-pix_fmt", "yuv420p",
-      "-g", "60",
-      "-keyint_min", "60",
-      "-sc_threshold", "0",
-      "-c:a", "aac",
-      "-b:a", "128k",
-      "-ar", "44100",
-      "-ac", "2",
-      "-movflags", "+faststart",
-      "-progress", "pipe:2",
-      "-nostats",
-      outputPath
-    ];
+async function processDownload(job) {
+  const { id, url, quality } = job;
 
-    const ff = spawn("ffmpeg", args);
+  try {
+    setJob(id, {
+      stage: "starting",
+      percent: 0,
+      speed: "Conectando...",
+      eta: "--",
+      error: ""
+    });
 
-    let emaEta = null;
-    let lastEmit = 0;
-    let currentOutTimeSec = 0;
+    const info = await ytDlp.getVideoInfo(url);
 
-    ff.stderr.on("data", (chunk) => {
-      const text = String(chunk || "");
+    const title = info.title || "Vídeo";
+    const thumbnail =
+      info.thumbnail ||
+      (info.thumbnails?.length
+        ? info.thumbnails[info.thumbnails.length - 1].url
+        : "");
+
+    setJob(id, {
+      title,
+      thumbnail
+    });
+
+    const safeQuality = String(quality || "1080").replace(/\D/g, "") || "1080";
+    const outputTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
+    const finalPath = path.join(downloadsDir, `${id}.mp4`);
+
+    cleanJobFiles(id);
+    safeRemove(finalPath);
+
+    const yt = ytDlp.exec([
+      url,
+      "--no-playlist",
+      "-f",
+      `bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${safeQuality}]+bestaudio/best`,
+      "--merge-output-format",
+      "mp4",
+      "--newline",
+      "-o",
+      outputTemplate
+    ]);
+
+    let downloadEtaEma = null;
+    let lastPercent = 0;
+
+    yt.on("ytDlpEvent", (_type, data) => {
+      const text = String(data || "");
       console.log(text);
 
-      const lines = text.split(/\r?\n/).filter(Boolean);
+      const parsed = parseProgressLine(text);
+      if (parsed) {
+        const etaSeconds = parseEtaToSeconds(parsed.eta);
 
-      for (const line of lines) {
-        if (line.startsWith("out_time_ms=")) {
-          const value = Number(line.split("=").pop());
-          if (Number.isFinite(value)) {
-            currentOutTimeSec = value / 1_000_000;
-          }
-        } else if (line.startsWith("out_time_us=")) {
-          const value = Number(line.split("=").pop());
-          if (Number.isFinite(value)) {
-            currentOutTimeSec = value / 1_000_000;
-          }
-        } else if (line.startsWith("progress=")) {
-          const now = Date.now();
-          const pct = durationSec > 0
-            ? Math.min(100, Math.max(0.1, (currentOutTimeSec / durationSec) * 100))
-            : 0;
-
-          const elapsedSec = (now - meta.ffmpegStartedAt) / 1000;
-          let etaSec = null;
-
-          if (pct > 0.1) {
-            etaSec = (elapsedSec / (pct / 100)) - elapsedSec;
-            if (!Number.isFinite(etaSec) || etaSec < 0) etaSec = null;
-          }
-
-          if (etaSec !== null) {
-            emaEta = emaEta === null ? etaSec : (emaEta * 0.75 + etaSec * 0.25);
-          }
-
-          if (now - lastEmit >= 400 || line.includes("progress=end")) {
-            lastEmit = now;
-            const emitPercent = Math.min(100, Math.max(0, Math.round(pct)));
-
-            emitProgress({
-              id: meta.id,
-              title: meta.title,
-              thumbnail: meta.thumbnail,
-              stage: "merging",
-              percent: emitPercent,
-              speed: line.includes("progress=end") ? "--" : "renderizando",
-              eta: line.includes("progress=end") ? "0:00" : formatEta(emaEta)
-            });
-          }
+        if (etaSeconds !== null) {
+          downloadEtaEma =
+            downloadEtaEma === null
+              ? etaSeconds
+              : downloadEtaEma * 0.7 + etaSeconds * 0.3;
         }
+
+        lastPercent = Math.max(lastPercent, Math.min(100, parsed.percent));
+
+        setJob(id, {
+          stage: "downloading",
+          percent: lastPercent,
+          speed: parsed.speed,
+          eta: downloadEtaEma !== null ? formatEta(downloadEtaEma) : parsed.eta
+        });
+      }
+
+      if (text.includes("Merging formats into")) {
+        setJob(id, {
+          stage: "merging",
+          percent: 0,
+          speed: "Mesclando formatos...",
+          eta: "0:05"
+        });
       }
     });
 
-    ff.on("error", reject);
+    await yt.promise;
 
-    ff.on("close", (code) => {
-      if (code === 0) return resolve();
-      reject(new Error(`FFmpeg saiu com código ${code}`));
+    const mergedPath = await waitForMergedFile(id, job);
+
+    safeRemove(finalPath);
+    fs.renameSync(mergedPath, finalPath);
+
+    setJob(id, {
+      stage: "finished",
+      percent: 100,
+      speed: "--",
+      eta: "--",
+      download: `/download/${id}.mp4`
     });
-  });
+
+    return publicJob(jobs[id]);
+  } catch (err) {
+    console.error(err);
+
+    setJob(id, {
+      stage: "error",
+      error: err.message || "Erro ao processar vídeo",
+      speed: "--",
+      eta: "--"
+    });
+
+    throw err;
+  }
 }
 
-async function processDownload({ id, url, quality }) {
-  const info = await ytDlp.getVideoInfo(url);
-
-  const title = info.title || "Vídeo";
-  const thumbnail =
-    info.thumbnail ||
-    (info.thumbnails?.length
-      ? info.thumbnails[info.thumbnails.length - 1].url
-      : "");
-
-  const safeQuality = String(quality || "1080").replace(/\D/g, "") || "1080";
-  const outputTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
+app.get("/api/status/:id", (req, res) => {
+  const { id } = req.params;
+  const job = jobs[id];
   const finalPath = path.join(downloadsDir, `${id}.mp4`);
 
-  cleanJobFiles(id);
-  safeRemove(finalPath);
-
-  emitProgress({
-    id,
-    title,
-    thumbnail,
-    stage: "starting",
-    percent: 0,
-    speed: "--",
-    eta: "--"
-  });
-
-  let lastDownloadEta = null;
-  let downloadEtaEma = null;
-  let lastDownloadPct = 0;
-
-  const yt = ytDlp.exec([
-    url,
-    "--no-playlist",
-    "-f",
-    `bestvideo[height<=${safeQuality}][vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[height<=${safeQuality}]+bestaudio/best`,
-    "--merge-output-format",
-    "mp4",
-    "--newline",
-    "-o",
-    outputTemplate
-  ]);
-
-  yt.on("ytDlpEvent", (_type, data) => {
-    const text = String(data || "");
-    console.log(text);
-
-    const parsed = parseProgressLine(text);
-
-    if (parsed) {
-      const etaSec = parseEtaToSeconds(parsed.eta);
-
-      if (etaSec !== null) {
-        downloadEtaEma =
-          downloadEtaEma === null ? etaSec : (downloadEtaEma * 0.7 + etaSec * 0.3);
-        lastDownloadEta = formatEta(downloadEtaEma);
-      }
-
-      const stablePct = Math.max(lastDownloadPct, Math.floor(parsed.percent));
-      lastDownloadPct = stablePct;
-
-      emitProgress({
-        id,
-        title,
-        thumbnail,
-        stage: "downloading",
-        percent: stablePct,
-        speed: parsed.speed,
-        eta: lastDownloadEta || parsed.eta || "--"
-      });
+  if (job) {
+    const payload = publicJob(job);
+    if (payload.stage === "finished" && fs.existsSync(finalPath)) {
+      payload.download = `/download/${id}.mp4`;
     }
+    return res.json(payload);
+  }
 
-    if (text.includes("Merging formats into")) {
-      emitProgress({
-        id,
-        title,
-        thumbnail,
-        stage: "merging",
-        percent: 0,
-        speed: "--",
-        eta: "--"
-      });
-    }
-  });
-
-  await yt.promise;
-
-  const mergedPath = await waitForMergedFile(id);
-
-  emitProgress({
-    id,
-    title,
-    thumbnail,
-    stage: "merging",
-    percent: 0,
-    speed: "finalizando...",
-    eta: "--"
-  });
-
-  const durationSec = Number(info.duration || 0) || 1;
-
-  await runFfmpegCfr30(
-    mergedPath,
-    finalPath,
-    durationSec,
-    {
+  if (fs.existsSync(finalPath)) {
+    return res.json({
       id,
-      title,
-      thumbnail,
-      ffmpegStartedAt: Date.now()
-    }
-  );
+      stage: "finished",
+      percent: 100,
+      download: `/download/${id}.mp4`
+    });
+  }
 
-  safeRemove(mergedPath);
+  const sourceFiles = fs
+    .readdirSync(downloadsDir)
+    .filter((name) => name.startsWith(`${id}.source`));
 
-  emitProgress({
-    id,
-    title,
-    thumbnail,
-    stage: "finished",
-    percent: 100,
-    download: `/downloads/${id}.mp4`
-  });
+  if (sourceFiles.length > 0) {
+    return res.json({
+      id,
+      stage: "merging",
+      percent: 0,
+      speed: "Mesclando formatos...",
+      eta: "--"
+    });
+  }
 
-  return {
-    success: true,
-    download: `/downloads/${id}.mp4`
-  };
-}
+  return res.status(404).json({ error: "Job não encontrado" });
+});
 
 app.post("/api/download", async (req, res) => {
   if (busy) {
@@ -395,29 +377,40 @@ app.post("/api/download", async (req, res) => {
     });
   }
 
-  const id = clientId || `job_${Date.now()}`;
+  const id = String(clientId || `job_${Date.now()}`);
+  if (jobs[id]) {
+    return res.status(409).json({
+      error: "Já existe um job com esse id"
+    });
+  }
 
   busy = true;
+
+  jobs[id] = {
+    id,
+    url,
+    quality: String(quality || "1080"),
+    title: "Preparando download...",
+    thumbnail: "",
+    stage: "starting",
+    percent: 0,
+    speed: "Conectando...",
+    eta: "--",
+    download: "",
+    error: "",
+    startedAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  emitJob(jobs[id]);
 
   res.status(202).json({
     success: true,
     id
   });
 
-  processDownload({
-    id,
-    url,
-    quality: quality || "1080"
-  })
-    .catch((err) => {
-      console.error(err);
-
-      emitProgress({
-        id,
-        stage: "error",
-        message: err.message || "Erro ao processar vídeo"
-      });
-    })
+  processDownload(jobs[id])
+    .catch(() => {})
     .finally(() => {
       busy = false;
     });
