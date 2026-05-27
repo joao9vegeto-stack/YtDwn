@@ -1,10 +1,13 @@
 FROM node:20
 
 RUN apt-get update && apt-get install -y \
-    python3 \
     ffmpeg \
-    yt-dlp \
-    && rm -rf /var/lib/apt/lists/*
+    aria2 \
+    python3 \
+    python3-pip \
+    curl
+
+RUN pip3 install --break-system-packages yt-dlp
 
 WORKDIR /app
 
