@@ -2,10 +2,12 @@ FROM node:20-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    aria2 \
-    yt-dlp \
+    python3 \
+    python3-pip \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --break-system-packages -U yt-dlp
 
 WORKDIR /app
 
@@ -16,4 +18,4 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "server.cjs"]
