@@ -1,65 +1,56 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YT Downloader</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
-  <script defer src="/app.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
   <div class="bg-glow"></div>
-
-  <main class="app">
+  <div class="app">
     <header class="topbar">
       <div class="logo-wrap">
         <div class="logo">▶</div>
         <div>
           <h1>YT Downloader</h1>
-          <p>Conversão rápida para uso geral.<br>MP4 H264 + AAC com foco em velocidade.</p>
+          <p>MP4 H264 + AAC com foco em velocidade e compatibilidade.</p>
         </div>
       </div>
     </header>
 
     <section class="hero-card">
       <div class="input-group">
-        <input id="url" placeholder="Cole o link do YouTube" autocomplete="off" autocapitalize="none" spellcheck="false">
-
+        <input id="url" placeholder="Cole o link do YouTube" autocomplete="off" autocapitalize="none" spellcheck="false" />
         <select id="quality">
           <option value="1080">1080p H264 + AAC</option>
           <option value="720">720p H264 + AAC</option>
           <option value="480">480p H264 + AAC</option>
         </select>
-
-        <button class="search-btn" id="start-btn" type="button">Baixar e Converter</button>
+        <button class="search-btn" id="startBtn">Baixar e Converter</button>
       </div>
     </section>
 
     <div class="downloads-header">
       <h2 class="downloads-title">Downloads</h2>
-      <button id="clear-history" class="clear-btn" type="button">Limpar</button>
+      <button id="clear-history" class="clear-btn">Limpar</button>
     </div>
 
-    <section id="downloads"></section>
-  </main>
+    <div id="downloads"></div>
+  </div>
 
-  <div class="report-modal" id="report-modal" hidden>
-    <div class="report-backdrop" data-close-report></div>
-    <div class="report-panel" role="dialog" aria-modal="true" aria-labelledby="report-title">
-      <div class="report-header">
-        <div>
-          <h3 id="report-title">Relatório MP4</h3>
-          <p id="report-subtitle">Especificações do arquivo final</p>
-        </div>
-        <button class="report-close" type="button" data-close-report aria-label="Fechar relatório">×</button>
-      </div>
-
-      <div id="report-body" class="report-body">
-        <div class="report-loading">Selecione um arquivo concluído para ver as especificações.</div>
-      </div>
+  <div id="report-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-modal>×</button>
+      <h3 id="report-title">Relatório do MP4</h3>
+      <pre id="report-body">Carregando...</pre>
     </div>
   </div>
+
+  <script src="/app.js"></script>
 </body>
 </html>
