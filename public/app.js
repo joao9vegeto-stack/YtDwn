@@ -1,18 +1,16 @@
-
-const STORAGE_KEY = "ytdown_jobs_v8";
-
-const downloadsRoot = document.getElementById("downloads");
-const urlInput = document.getElementById("url");
-const qualityInput = document.getElementById("quality");
-const startBtn = document.getElementById("start-btn");
-const clearBtn = document.getElementById("clear-history");
-const reportModal = document.getElementById("report-modal");
-const reportBody = document.getElementById("report-body");
-const reportSubtitle = document.getElementById("report-subtitle");
+const socket = io();
+const STORAGE_KEY = 'ytdown_jobs_v8';
+const downloadsRoot = document.getElementById('downloads');
+const startBtn = document.getElementById('startBtn');
+const clearBtn = document.getElementById('clear-history');
+const modal = document.getElementById('report-modal');
+const reportTitle = document.getElementById('report-title');
+const reportBody = document.getElementById('report-body');
 
 let store = loadStore();
-let cards = Object.create(null);
-let pollers = Object.create(null);
+let cards = {};
+let pollers = {};
+let busy = false;
 
 function loadStore() {
   try {
@@ -24,30 +22,33 @@ function loadStore() {
 }
 
 function saveStore() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch {}
 }
 
-function activeJobsExist() {
-  return Object.values(store).some((job) => !["finished", "error"].includes(job.stage));
+function uuidLike() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function syncButtonState() {
-  const active = activeJobsExist();
-  startBtn.disabled = active;
-  startBtn.textContent = active ? "Processando..." : "Baixar e Converter";
+function refreshBusy() {
+  busy = Object.values(store).some((job) => !['finished', 'error'].includes(job.stage));
+  startBtn.disabled = busy;
+  startBtn.textContent = busy ? 'Processando...' : 'Baixar e Converter';
 }
 
 function clearDownloads() {
-  Object.values(pollers).forEach((timer) => clearInterval(timer));
-  pollers = Object.create(null);
-  cards = Object.create(null);
+  Object.values(pollers).forEach(clearInterval);
+  pollers = {};
   store = {};
+  cards = {};
+  downloadsRoot.innerHTML = '';
   saveStore();
-  downloadsRoot.innerHTML = "";
-  syncButtonState();
+  refreshBusy();
 }
 
-function setStoreJob(job) {
+function persist(job) {
   if (!job || !job.id) return;
   const prev = store[job.id] || {};
   store[job.id] = {
@@ -57,19 +58,16 @@ function setStoreJob(job) {
     updatedAt: Date.now()
   };
   saveStore();
-  syncButtonState();
+  refreshBusy();
 }
 
 function getCard(jobId) {
   if (cards[jobId]) return cards[jobId];
-
-  const container = document.createElement("article");
-  container.className = "download-item";
-  container.dataset.jobId = jobId;
-  container.innerHTML = `
-    <div class="thumb">
-      <img alt="">
-    </div>
+  const el = document.createElement('article');
+  el.className = 'download-item';
+  el.dataset.jobId = jobId;
+  el.innerHTML = `
+    <div class="thumb"><img alt=""></div>
     <div class="download-content">
       <div class="badge">H264</div>
       <div class="video-title">Preparando download...</div>
@@ -78,93 +76,66 @@ function getCard(jobId) {
       <div class="download-actions"></div>
     </div>
   `;
-
-  downloadsRoot.prepend(container);
-  cards[jobId] = container;
-  return container;
+  downloadsRoot.prepend(el);
+  cards[jobId] = el;
+  return el;
 }
 
-function humanDuration(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "--";
-  const s = Math.round(seconds);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-  return `${m}:${String(sec).padStart(2, "0")}`;
+function stageLabel(job) {
+  if (job.stage === 'starting') return 'Preparando download...';
+  if (job.stage === 'downloading') return `Baixando... ${Math.round(job.progress || 0)}%`;
+  if (job.stage === 'processing') return `Mesclando formatos... ${Math.round(job.progress || 0)}%`;
+  if (job.stage === 'finished' || job.done) return 'Concluído';
+  if (job.stage === 'error' || job.error) return job.error || 'Erro';
+  return 'Processando...';
 }
 
-function humanBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "--";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
-}
-
-function fpsText(fps) {
-  if (!fps || !Number.isFinite(fps)) return "--";
-  const rounded = Math.round(fps * 1000) / 1000;
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
-}
-
-function renderCard(job) {
+function updateCard(job) {
   const el = getCard(job.id);
-  const img = el.querySelector("img");
-  const titleEl = el.querySelector(".video-title");
-  const statusEl = el.querySelector(".status-text");
-  const bar = el.querySelector(".progress-bar");
-  const actions = el.querySelector(".download-actions");
+  const img = el.querySelector('img');
+  const titleEl = el.querySelector('.video-title');
+  const statusEl = el.querySelector('.status-text');
+  const bar = el.querySelector('.progress-bar');
+  const actions = el.querySelector('.download-actions');
 
   if (job.thumbnail) img.src = job.thumbnail;
   if (job.title) titleEl.textContent = job.title;
 
-  const progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
+  const p = Math.max(0, Math.min(100, Number(job.progress || 0)));
+  const speed = job.speed || '--';
+  const eta = job.eta || '--';
 
-  if (job.stage === "starting") {
-    statusEl.innerHTML = `Preparando download...<br>${job.speed || "Conectando..."} • ETA ${job.eta || "--"}`;
-    bar.style.width = "0%";
-    actions.innerHTML = "";
-  }
-
-  if (job.stage === "downloading") {
-    statusEl.innerHTML = `Baixando... ${progress}%<br>${job.speed || "--"} • ETA ${job.eta || "--"}`;
-    bar.style.width = `${progress}%`;
-    actions.innerHTML = "";
-  }
-
-  if (job.stage === "processing") {
-    statusEl.innerHTML = `Mesclando formatos...<br>Finalizando o MP4`;
-    bar.style.width = "100%";
-    actions.innerHTML = "";
-  }
-
-  if (job.stage === "finished") {
-    statusEl.innerHTML = `<span class="done">Conversão finalizada com sucesso</span>`;
-    bar.style.width = "100%";
+  if (job.stage === 'starting') {
+    statusEl.innerHTML = `Preparando download...<br>${speed} • ETA ${eta}`;
+    bar.style.width = '0%';
+    actions.innerHTML = '';
+  } else if (job.stage === 'downloading') {
+    statusEl.innerHTML = `Baixando... ${p}%<br>${speed} • ETA ${eta}`;
+    bar.style.width = `${p}%`;
+    actions.innerHTML = '';
+  } else if (job.stage === 'processing') {
+    statusEl.innerHTML = `Mesclando formatos...<br>${p}% concluído • ETA ${eta}`;
+    bar.style.width = `${p}%`;
+    actions.innerHTML = '';
+  } else if (job.stage === 'finished' || job.done) {
+    statusEl.innerHTML = `<span class="done">Concluído</span>`;
+    bar.style.width = '100%';
     actions.innerHTML = `
       <a class="download-btn" href="${job.file || `/api/file/${job.id}`}" download>Baixar MP4</a>
-      <button class="report-btn" type="button" data-report-id="${job.id}">Relatório MP4</button>
+      <button class="download-btn small-btn" type="button" data-report="${job.id}">Relatório MP4</button>
     `;
-
-    const reportBtn = actions.querySelector(`[data-report-id="${job.id}"]`);
-    if (reportBtn) {
-      reportBtn.addEventListener("click", () => openReport(job.id));
-    }
+  } else if (job.stage === 'error' || job.error) {
+    statusEl.innerHTML = `<span class="error">${job.error || 'Erro ao processar vídeo'}</span>`;
+    actions.innerHTML = '';
   }
 
-  if (job.stage === "error") {
-    statusEl.innerHTML = `<span class="error">${job.error || job.message || "Erro ao processar vídeo"}</span>`;
-    bar.style.width = "0%";
-    actions.innerHTML = "";
+  const reportBtn = actions.querySelector('[data-report]');
+  if (reportBtn) {
+    reportBtn.onclick = () => openReport(job.id, job.title || 'Relatório do MP4');
   }
 }
 
-function stopPolling(jobId) {
+function stopPoll(jobId) {
   if (pollers[jobId]) {
     clearInterval(pollers[jobId]);
     delete pollers[jobId];
@@ -173,224 +144,136 @@ function stopPolling(jobId) {
 
 async function pollJob(jobId) {
   try {
-    const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+    const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
     if (!res.ok) {
+      if (store[jobId] && !['finished', 'error'].includes(store[jobId].stage)) {
+        store[jobId].stage = 'error';
+        store[jobId].error = 'Job não encontrado';
+        updateCard(store[jobId]);
+        persist(store[jobId]);
+      }
+      stopPoll(jobId);
       return;
     }
-
     const data = await res.json();
     const merged = { ...(store[jobId] || {}), ...data };
-
-    setStoreJob(merged);
-    renderCard(merged);
-
-    if (["finished", "error"].includes(merged.stage)) {
-      stopPolling(jobId);
-    }
+    updateCard(merged);
+    persist(merged);
+    if (data.stage === 'finished' || data.done || data.error) stopPoll(jobId);
   } catch (err) {
     console.error(err);
   }
 }
 
-function startPolling(jobId) {
-  stopPolling(jobId);
+function startPoll(jobId) {
+  stopPoll(jobId);
   pollJob(jobId);
   pollers[jobId] = setInterval(() => pollJob(jobId), 1000);
 }
 
-function uuidLike() {
-  if (window.crypto?.randomUUID) return crypto.randomUUID();
-  return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
 async function startDownload() {
-  const active = activeJobsExist();
-  if (active) return;
-
-  const url = urlInput.value.trim();
-  const quality = qualityInput.value;
-
+  if (busy) return;
+  const url = document.getElementById('url').value.trim();
+  const quality = document.getElementById('quality').value;
   if (!url) {
-    alert("Cole um link");
+    alert('Cole um link');
     return;
   }
 
   const clientId = uuidLike();
-  const initialJob = {
+  const job = {
     id: clientId,
-    title: "Preparando download...",
-    thumbnail: "",
-    stage: "starting",
-    status: "Preparando download...",
+    title: 'Preparando download...',
+    thumbnail: '',
+    stage: 'starting',
     progress: 0,
-    speed: "Conectando...",
-    eta: "--",
-    file: "",
+    speed: 'Conectando...',
+    eta: '--',
     done: false,
-    error: "",
-    report: null,
+    file: '',
+    error: '',
     startedAt: Date.now()
   };
 
-  setStoreJob(initialJob);
-  renderCard(initialJob);
-  startPolling(clientId);
-  syncButtonState();
+  updateCard(job);
+  persist(job);
 
   try {
-    const res = await fetch("/api/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const res = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, quality, clientId })
     });
-
     const data = await res.json();
-
     if (!res.ok || data.error) {
-      const job = { ...initialJob, stage: "error", error: data.error || "Erro ao iniciar download" };
-      setStoreJob(job);
-      renderCard(job);
-      stopPolling(clientId);
+      job.stage = 'error';
+      job.error = data.error || 'Erro ao iniciar download';
+      updateCard(job);
+      persist(job);
       return;
     }
 
     const jobId = data.id || clientId;
-    if (jobId !== clientId) {
-      const current = store[clientId];
-      if (current) {
-        delete store[clientId];
-        current.id = jobId;
-        setStoreJob(current);
-        renderCard(current);
-        cards[jobId] = cards[clientId];
-        delete cards[clientId];
-        stopPolling(clientId);
-        startPolling(jobId);
-      }
-    }
+    job.id = jobId;
+    persist(job);
+    updateCard(job);
+    startPoll(jobId);
   } catch (err) {
     console.error(err);
-    const job = { ...initialJob, stage: "error", error: "Erro ao iniciar download" };
-    setStoreJob(job);
-    renderCard(job);
-    stopPolling(clientId);
+    job.stage = 'error';
+    job.error = 'Erro ao iniciar download';
+    updateCard(job);
+    persist(job);
   }
 }
 
-function formatReport(report) {
-  const checks = report.checks || {};
-  const container = report.container || {};
-  const file = report.file || {};
-  const video = report.video || {};
-  const audio = report.audio || {};
-
-  const chip = (label, ok) => `<span class="report-chip ${ok ? "ok" : ""}">${label}</span>`;
-
-  return `
-    <div class="report-summary">
-      <div class="report-badges">
-        ${chip("MP4", checks.mp4)}
-        ${chip(video.codec_name ? video.codec_name.toUpperCase() : "H264", checks.h264)}
-        ${chip(audio.codec_name ? audio.codec_name.toUpperCase() : "AAC", checks.aac)}
-      </div>
-
-      <div class="report-grid">
-        <div class="report-box">
-          <h4>Arquivo</h4>
-          <div class="report-kv">
-            <div class="report-row"><span>Container</span><span>${container.format_name || "--"} (${container.format_long_name || "--"})</span></div>
-            <div class="report-row"><span>Tamanho</span><span>${file.size_readable || "--"}</span></div>
-            <div class="report-row"><span>Duração</span><span>${humanDuration(file.duration_seconds || 0)}</span></div>
-            <div class="report-row"><span>Bitrate total</span><span>${file.bitrate ? `${Math.round(file.bitrate / 1000)} kb/s` : "--"}</span></div>
-          </div>
-        </div>
-
-        <div class="report-box">
-          <h4>Vídeo</h4>
-          <div class="report-kv">
-            <div class="report-row"><span>Codec</span><span>${video.codec_name || "--"} (${video.codec_long_name || "--"})</span></div>
-            <div class="report-row"><span>Resolução</span><span>${video.width && video.height ? `${video.width} × ${video.height}` : "--"}</span></div>
-            <div class="report-row"><span>FPS</span><span>${fpsText(video.fps || 0)}</span></div>
-            <div class="report-row"><span>Profile</span><span>${video.profile || "--"}</span></div>
-            <div class="report-row"><span>Pixel format</span><span>${video.pix_fmt || "--"}</span></div>
-          </div>
-        </div>
-
-        <div class="report-box">
-          <h4>Áudio</h4>
-          <div class="report-kv">
-            <div class="report-row"><span>Codec</span><span>${audio.codec_name || "--"} (${audio.codec_long_name || "--"})</span></div>
-            <div class="report-row"><span>Sample rate</span><span>${audio.sample_rate ? `${audio.sample_rate} Hz` : "--"}</span></div>
-            <div class="report-row"><span>Canais</span><span>${audio.channels || "--"}</span></div>
-            <div class="report-row"><span>Layout</span><span>${audio.channel_layout || "--"}</span></div>
-            <div class="report-row"><span>Bitrate</span><span>${audio.bitrate ? `${Math.round(audio.bitrate / 1000)} kb/s` : "--"}</span></div>
-          </div>
-        </div>
-
-        <div class="report-box">
-          <h4>Compatibilidade</h4>
-          <div class="report-kv">
-            <div class="report-row"><span>H264</span><span>${checks.h264 ? "Sim" : "Não"}</span></div>
-            <div class="report-row"><span>AAC</span><span>${checks.aac ? "Sim" : "Não"}</span></div>
-            <div class="report-row"><span>MP4</span><span>${checks.mp4 ? "Sim" : "Não"}</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-async function openReport(jobId) {
-  reportModal.hidden = false;
-  reportSubtitle.textContent = `Job ${jobId}`;
-  reportBody.innerHTML = `<div class="report-loading">Carregando relatório...</div>`;
+async function openReport(jobId, title) {
+  reportTitle.textContent = title || 'Relatório do MP4';
+  reportBody.textContent = 'Carregando...';
+  modal.classList.remove('hidden');
 
   try {
-    const res = await fetch(`/api/report/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+    const res = await fetch(`/api/report/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
     const data = await res.json();
-
     if (!res.ok || data.error) {
-      reportBody.innerHTML = `<div class="report-loading">${data.error || "Não foi possível gerar o relatório."}</div>`;
+      reportBody.textContent = data.error || 'Não foi possível gerar o relatório.';
       return;
     }
 
-    reportBody.innerHTML = formatReport(data);
+    reportBody.textContent = JSON.stringify(data, null, 2);
   } catch (err) {
-    reportBody.innerHTML = `<div class="report-loading">${err.message || "Não foi possível gerar o relatório."}</div>`;
+    reportBody.textContent = err.message || 'Erro ao carregar relatório.';
   }
 }
 
-function closeReport() {
-  reportModal.hidden = true;
+function closeModal() {
+  modal.classList.add('hidden');
 }
 
-function bootstrap() {
-  downloadsRoot.innerHTML = "";
+socket.on('progress', (data) => {
+  if (!data || !data.id) return;
+  const merged = { ...(store[data.id] || {}), ...data };
+  updateCard(merged);
+  persist(merged);
+  if (!['finished', 'error'].includes(merged.stage)) startPoll(merged.id);
+  if (merged.stage === 'finished' || merged.done || merged.error) stopPoll(merged.id);
+});
+
+modal.addEventListener('click', (e) => {
+  if (e.target && e.target.hasAttribute('data-close-modal')) closeModal();
+});
+
+document.getElementById('startBtn').addEventListener('click', startDownload);
+clearBtn.addEventListener('click', clearDownloads);
+
+(function bootstrap() {
   const jobs = Object.values(store).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
-
-  for (const job of jobs) {
-    renderCard(job);
-    if (!["finished", "error"].includes(job.stage)) {
-      startPolling(job.id);
-    }
-  }
-
-  syncButtonState();
-}
-
-startBtn.addEventListener("click", startDownload);
-clearBtn.addEventListener("click", clearDownloads);
-
-reportModal.addEventListener("click", (event) => {
-  if (event.target.matches("[data-close-report]")) {
-    closeReport();
-  }
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !reportModal.hidden) {
-    closeReport();
-  }
-});
-
-bootstrap();
+  jobs.forEach((job) => {
+    updateCard(job);
+    if (!['finished', 'error'].includes(job.stage)) startPoll(job.id);
+  });
+  refreshBusy();
+})();
+  </script>
+</body>
+</html>
