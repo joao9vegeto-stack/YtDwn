@@ -270,21 +270,19 @@ async function processDownload(jobId, url, quality) {
     const safeQuality = String(quality || "1080").replace(/\D/g, "") || "1080";
 
     const args = [
-      "--no-playlist",
-      "--newline",
-      "--progress",
-      "--downloader",
-      "aria2c",
-      "--downloader-args",
-      "aria2c:-x 16 -s 16 -k 1M",
-      "-f",
-      `bv*[ext=mp4][height<=${safeQuality}]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best`,
-      "--merge-output-format",
-      "mp4",
-      "-o",
-      outputTemplate,
-      url,
-    ];
+  "--no-playlist",
+  "--newline",
+  "--progress",
+  "--cookies",
+  "cookies.txt",
+  "-f",
+  `bv*[ext=mp4][height<=${safeQuality}]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/18/best`,
+  "--merge-output-format",
+  "mp4",
+  "-o",
+  outputTemplate,
+  url,
+];
 
     const yt = spawn("yt-dlp", args, {
       stdio: ["ignore", "pipe", "pipe"],
