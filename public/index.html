@@ -489,13 +489,13 @@ function updateCard(card, data) {
     bar.style.width = (data.percent || 0) + "%";
   }
 
-  if (data.stage === "merging") {
-    status.innerHTML = `
-      Mesclando formatos...<br>
-      Finalizando o MP4
-    `;
-    bar.style.width = "100%";
-  }
+if (data.stage === "merging") {
+  status.innerHTML = `
+    Mesclando formatos...<br>
+    ${data.percent || 0}% concluído • ETA ${data.eta || "--"}
+  `;
+  bar.style.width = (data.percent || 0) + "%";
+}
 
   if (data.stage === "converting") {
     status.innerHTML = `
