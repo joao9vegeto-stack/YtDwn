@@ -1,271 +1,109 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YT Downloader</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
   <style>
-    :root {
-      color-scheme: dark;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     body {
       min-height: 100vh;
       background:
-        radial-gradient(circle at top, rgba(255, 0, 60, 0.18), transparent 35%),
-        radial-gradient(circle at bottom, rgba(255, 0, 60, 0.08), transparent 35%),
+        radial-gradient(circle at top, rgba(255,0,60,.18), transparent 35%),
+        radial-gradient(circle at bottom, rgba(255,0,60,.08), transparent 35%),
         #050505;
       color: #fff;
     }
-
     .bg-glow {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background: radial-gradient(circle at top, rgba(255, 0, 60, 0.18), transparent 45%);
+      position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(circle at top, rgba(255,0,60,.18), transparent 45%);
       z-index: -1;
     }
-
-    .app {
-      width: min(760px, 100%);
-      margin: 0 auto;
-      padding: 28px 18px 56px;
-    }
-
-    .topbar {
-      margin-bottom: 24px;
-    }
-
-    .logo-wrap {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
+    .app { width: min(760px, 100%); margin: 0 auto; padding: 28px 18px 56px; }
+    .topbar { margin-bottom: 24px; }
+    .logo-wrap { display: flex; align-items: center; gap: 14px; }
     .logo {
-      width: 54px;
-      height: 54px;
-      border-radius: 18px;
-      display: grid;
-      place-items: center;
+      width: 54px; height: 54px; border-radius: 18px; display: grid; place-items: center;
       background: linear-gradient(135deg, #ff003c, #ff2356);
       box-shadow: 0 10px 28px rgba(255, 0, 60, 0.22);
-      font-size: 22px;
-      font-weight: 800;
+      font-size: 22px; font-weight: 800;
     }
-
     h1 {
-      font-size: 38px;
-      line-height: 1;
-      font-weight: 800;
-      letter-spacing: -0.04em;
+      font-size: 38px; line-height: 1; font-weight: 800; letter-spacing: -0.04em;
       background: linear-gradient(90deg, #ff003c, #ff5e7f);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     }
-
-    .topbar p {
-      margin-top: 10px;
-      color: #9b9b9b;
-      line-height: 1.45;
-      font-size: 15px;
-    }
-
+    .topbar p { margin-top: 10px; color: #9b9b9b; line-height: 1.45; font-size: 15px; }
     .hero-card {
-      background: rgba(16, 16, 16, 0.94);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(16,16,16,.94);
+      border: 1px solid rgba(255,255,255,.06);
       border-radius: 28px;
       padding: 18px;
-      box-shadow: 0 12px 38px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 12px 38px rgba(0,0,0,.35);
       margin-bottom: 24px;
     }
-
-    .input-group {
-      display: grid;
-      gap: 14px;
+    .input-group { display: grid; gap: 14px; }
+    input, select {
+      width: 100%; height: 60px; border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.04); background: #181818; color: #fff;
+      padding: 0 18px; font-size: 16px; outline: none;
     }
-
-    input,
-    select {
-      width: 100%;
-      height: 60px;
-      border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.04);
-      background: #181818;
-      color: #fff;
-      padding: 0 18px;
-      font-size: 16px;
-      outline: none;
+    input::placeholder { color: #707070; }
+    .search-btn, .download-btn, .clear-btn {
+      border: none; outline: none; cursor: pointer; transition: .2s ease; text-decoration: none;
     }
-
-    input::placeholder {
-      color: #707070;
-    }
-
-    .search-btn,
-    .download-btn,
-    .clear-btn {
-      border: none;
-      outline: none;
-      cursor: pointer;
-      transition: .2s ease;
-    }
-
     .search-btn {
-      height: 64px;
-      border-radius: 18px;
+      height: 64px; border-radius: 18px;
       background: linear-gradient(135deg, #ff003c, #ff2356);
-      color: #fff;
-      font-size: 18px;
-      font-weight: 800;
-      box-shadow: 0 10px 28px rgba(255, 0, 60, 0.25);
+      color: #fff; font-size: 18px; font-weight: 800;
+      box-shadow: 0 10px 28px rgba(255,0,60,.25);
     }
-
-    .search-btn:disabled {
-      opacity: .75;
-      cursor: not-allowed;
-    }
-
-    .search-btn:active,
-    .download-btn:active,
-    .clear-btn:active {
-      transform: scale(.98);
-    }
-
-    .downloads-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin: 4px 0 18px;
-      gap: 12px;
-    }
-
-    .downloads-title {
-      font-size: 26px;
-      letter-spacing: -0.03em;
-      font-weight: 800;
-    }
-
+    .search-btn:disabled { opacity: .75; cursor: not-allowed; }
+    .search-btn:active, .download-btn:active, .clear-btn:active { transform: scale(.98); }
+    .downloads-header { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 18px; gap: 12px; }
+    .downloads-title { font-size: 26px; letter-spacing: -0.03em; font-weight: 800; }
     .clear-btn {
-      height: 34px;
-      padding: 0 12px;
-      border-radius: 999px;
-      background: #f1f1f1;
-      color: #161616;
-      font-size: 14px;
-      font-weight: 700;
+      height: 34px; padding: 0 12px; border-radius: 999px; background: #f1f1f1; color: #161616;
+      font-size: 14px; font-weight: 700;
     }
-
-    #downloads {
-      display: grid;
-      gap: 18px;
-    }
-
+    #downloads { display: grid; gap: 18px; }
     .download-item {
-      background: rgba(15, 15, 15, 0.97);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(15,15,15,.97);
+      border: 1px solid rgba(255,255,255,.06);
       border-radius: 26px;
       overflow: hidden;
-      box-shadow: 0 12px 38px rgba(0, 0, 0, 0.28);
+      box-shadow: 0 12px 38px rgba(0,0,0,.28);
     }
-
-    .thumb {
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      background: #090909;
-      overflow: hidden;
-    }
-
-    .thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .download-content {
-      padding: 18px 18px 20px;
-    }
-
+    .thumb { width: 100%; aspect-ratio: 16 / 9; background: #090909; overflow: hidden; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .download-content { padding: 18px 18px 20px; }
     .badge {
-      display: inline-block;
-      padding: 9px 14px;
-      border-radius: 999px;
-      background: #12311c;
-      color: #18e16e;
-      font-size: 14px;
-      font-weight: 800;
-      margin-bottom: 16px;
+      display: inline-block; padding: 9px 14px; border-radius: 999px;
+      background: #12311c; color: #18e16e; font-size: 14px; font-weight: 800; margin-bottom: 16px;
     }
-
-    .video-title {
-      font-size: 22px;
-      font-weight: 800;
-      line-height: 1.2;
-      margin-bottom: 12px;
-      word-break: break-word;
-    }
-
-    .status-text {
-      color: #d1d1d1;
-      line-height: 1.45;
-      font-size: 16px;
-      min-height: 52px;
-    }
-
-    .done {
-      color: #18e16e;
-      font-weight: 700;
-    }
-
-    .error {
-      color: #ff6788;
-      font-weight: 700;
-    }
-
+    .video-title { font-size: 22px; font-weight: 800; line-height: 1.2; margin-bottom: 12px; word-break: break-word; }
+    .status-text { color: #d1d1d1; line-height: 1.45; font-size: 16px; min-height: 52px; }
+    .done { color: #18e16e; font-weight: 700; }
+    .error { color: #ff6788; font-weight: 700; }
     .progress-wrap {
-      width: 100%;
-      height: 12px;
-      border-radius: 999px;
-      background: #232323;
-      overflow: hidden;
-      margin-top: 20px;
+      width: 100%; height: 12px; border-radius: 999px; background: #232323;
+      overflow: hidden; margin-top: 20px;
     }
-
     .progress-bar {
-      width: 0%;
-      height: 100%;
-      border-radius: 999px;
+      width: 0%; height: 100%; border-radius: 999px;
       background: linear-gradient(90deg, #18e16e, #4ff0a0);
       transition: width .25s ease;
     }
-
-    .download-actions {
-      margin-top: 18px;
-    }
-
+    .download-actions { margin-top: 18px; }
     .download-btn {
-      width: 100%;
-      height: 60px;
-      border-radius: 18px;
+      width: 100%; height: 60px; border-radius: 18px;
       background: linear-gradient(135deg, #ff003c, #ff2356);
-      color: #fff;
-      font-size: 18px;
-      font-weight: 800;
+      color: #fff; font-size: 18px; font-weight: 800;
+      display: grid; place-items: center;
     }
-
     @media (max-width: 640px) {
       h1 { font-size: 32px; }
       .downloads-title { font-size: 22px; }
@@ -274,373 +112,322 @@
   </style>
 </head>
 <body>
-<div class="bg-glow"></div>
+  <div class="bg-glow"></div>
 
-<div class="app">
-  <div class="topbar">
-    <div class="logo-wrap">
-      <div class="logo">▶</div>
-      <div>
-        <h1>YT Downloader</h1>
-        <p>
-          Conversão rápida para uso geral.<br>
-          MP4 H264 + AAC com foco em velocidade.
-        </p>
+  <div class="app">
+    <div class="topbar">
+      <div class="logo-wrap">
+        <div class="logo">▶</div>
+        <div>
+          <h1>YT Downloader</h1>
+          <p>
+            Conversão rápida para uso geral.<br>
+            MP4 H264 + AAC com foco em velocidade.
+          </p>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="hero-card">
-    <div class="input-group">
-      <input
-        id="url"
-        placeholder="Cole o link do YouTube"
-        autocomplete="off"
-        autocapitalize="none"
-        spellcheck="false"
-      >
+    <div class="hero-card">
+      <div class="input-group">
+        <input
+          id="url"
+          placeholder="Cole o link do YouTube"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+        >
 
-      <select id="quality">
-        <option value="1080">1080p H264 + AAC</option>
-        <option value="720">720p H264 + AAC</option>
-        <option value="480">480p H264 + AAC</option>
-      </select>
+        <select id="quality">
+          <option value="1080">1080p H264 + AAC</option>
+          <option value="720">720p H264 + AAC</option>
+          <option value="480">480p H264 + AAC</option>
+        </select>
 
-      <button class="search-btn" onclick="startDownload()">
-        Baixar e Converter
-      </button>
+        <button class="search-btn" id="startBtn" onclick="startDownload()">
+          Baixar e Converter
+        </button>
+      </div>
     </div>
+
+    <div class="downloads-header">
+      <h2 class="downloads-title">Downloads</h2>
+      <button onclick="clearDownloads()" class="clear-btn">Limpar</button>
+    </div>
+
+    <div id="downloads"></div>
   </div>
 
-  <div class="downloads-header">
-    <h2 class="downloads-title">Downloads</h2>
-    <button onclick="clearDownloads()" class="clear-btn">Limpar</button>
-  </div>
+  <script>
+    const STORAGE_KEY = "ytdown_jobs_v7";
+    const downloadsRoot = document.getElementById("downloads");
+    const startBtn = document.getElementById("startBtn");
 
-  <div id="downloads"></div>
-</div>
+    let store = loadStore();
+    let cards = {};
+    let pollers = {};
+    let busy = false;
 
-<script>
-const socket = io();
-const STORAGE_KEY = "ytdown_jobs_state_v5";
-
-const downloadButton = document.querySelector(".search-btn");
-const downloadsRoot = document.getElementById("downloads");
-
-let downloads = {};
-let busy = false;
-let store = loadStore();
-const pollTimers = {};
-
-function loadStore() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (err) {
-    console.error(err);
-    return {};
-  }
-}
-
-function saveStore() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function setButtonState(isLoading, label) {
-  if (!downloadButton) return;
-  downloadButton.disabled = isLoading;
-  downloadButton.textContent = label || (isLoading ? "Processando..." : "Baixar e Converter");
-}
-
-function hasActiveJobs() {
-  return Object.values(store).some((job) => !["finished", "error"].includes(job.stage));
-}
-
-function refreshBusyState() {
-  busy = hasActiveJobs();
-  setButtonState(busy, busy ? "Processando..." : "Baixar e Converter");
-}
-
-function clearDownloads() {
-  Object.values(pollTimers).forEach((timer) => clearInterval(timer));
-  for (const key of Object.keys(pollTimers)) delete pollTimers[key];
-
-  downloads = {};
-  store = {};
-  saveStore();
-  downloadsRoot.innerHTML = "";
-  refreshBusyState();
-}
-
-function upsertStoredJob(data) {
-  if (!data || !data.id) return;
-
-  const previous = store[data.id] || {};
-  store[data.id] = {
-    ...previous,
-    ...data,
-    startedAt: previous.startedAt || data.startedAt || Date.now(),
-    updatedAt: Date.now()
-  };
-  saveStore();
-}
-
-function getCard(jobId) {
-  return downloads[jobId] || null;
-}
-
-function createOrGetCard(data) {
-  const existing = getCard(data.id);
-  if (existing) return existing;
-
-  const container = document.createElement("div");
-  container.className = "download-item";
-  container.dataset.jobId = data.id || "";
-
-  container.innerHTML = `
-<div class="thumb">
-  <img src="${data.thumbnail || ""}" alt="">
-</div>
-
-<div class="download-content">
-  <div class="badge">H264</div>
-
-  <div class="video-title">
-    ${data.title || "Processando vídeo"}
-  </div>
-
-  <div class="status-text"></div>
-
-  <div class="progress-wrap">
-    <div class="progress-bar"></div>
-  </div>
-
-  <div class="download-actions"></div>
-</div>
-`;
-
-  downloadsRoot.prepend(container);
-  downloads[data.id] = container;
-  return container;
-}
-
-function stopPolling(jobId) {
-  if (pollTimers[jobId]) {
-    clearInterval(pollTimers[jobId]);
-    delete pollTimers[jobId];
-  }
-}
-
-function startPolling(jobId) {
-  if (pollTimers[jobId]) return;
-
-  const tick = () => pollJob(jobId);
-  tick();
-  pollTimers[jobId] = setInterval(tick, 1500);
-}
-
-async function pollJob(jobId) {
-  try {
-    const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, {
-      cache: "no-store"
-    });
-
-    if (!res.ok) return;
-
-    const data = await res.json();
-    syncJob(data, false);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function syncJob(data, shouldPersist = true) {
-  if (!data || !data.id) return;
-
-  const card = createOrGetCard(data);
-  updateCard(card, data);
-
-  if (shouldPersist) {
-    upsertStoredJob(data);
-  }
-
-  if (["finished", "error"].includes(data.stage)) {
-    stopPolling(data.id);
-  }
-
-  refreshBusyState();
-}
-
-socket.on("progress", (data) => {
-  syncJob(data, true);
-});
-
-async function startDownload() {
-  if (busy) return;
-
-  const url = document.getElementById("url").value.trim();
-  const quality = document.getElementById("quality").value;
-
-  if (!url) {
-    alert("Cole um link");
-    return;
-  }
-
-  busy = true;
-  setButtonState(true, "Processando...");
-
-  const clientId = "job_" + Date.now();
-
-  const initialJob = {
-    id: clientId,
-    title: "Preparando download...",
-    thumbnail: "",
-    stage: "starting",
-    percent: 0,
-    speed: "Conectando...",
-    eta: "--",
-    url,
-    quality,
-    startedAt: Date.now()
-  };
-
-  upsertStoredJob(initialJob);
-
-  const card = createOrGetCard(initialJob);
-  updateCard(card, initialJob);
-
-  try {
-    const req = await fetch("/api/download", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        url,
-        quality,
-        clientId
-      })
-    });
-
-    const data = await req.json();
-
-    if (!req.ok || data.error) {
-      syncJob({
-        id: clientId,
-        stage: "error",
-        error: data.error || "Erro ao iniciar download",
-        message: data.error || "Erro ao iniciar download"
-      }, true);
-      return;
+    function loadStore() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return {};
+      }
     }
 
-    startPolling(clientId);
-  } catch (err) {
-    console.error(err);
+    function saveStore() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+      } catch {}
+    }
 
-    syncJob({
-      id: clientId,
-      stage: "error",
-      error: "Erro ao iniciar download",
-      message: "Erro ao iniciar download"
-    }, true);
-  }
-}
+    function refreshBusy() {
+      busy = Object.values(store).some((job) => !["finished", "error"].includes(job.stage));
+      startBtn.disabled = busy;
+      startBtn.textContent = busy ? "Processando..." : "Baixar e Converter";
+    }
 
-function updateCard(card, data) {
-  const status = card.querySelector(".status-text");
-  const bar = card.querySelector(".progress-bar");
-  const actions = card.querySelector(".download-actions");
+    function clearDownloads() {
+      Object.values(pollers).forEach(clearInterval);
+      pollers = {};
+      store = {};
+      cards = {};
+      saveStore();
+      downloadsRoot.innerHTML = "";
+      refreshBusy();
+    }
 
-  if (data.thumbnail) {
-    const img = card.querySelector("img");
-    if (img) img.src = data.thumbnail;
-  }
+    function uuidLike() {
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    }
 
-  if (data.title) {
-    const titleEl = card.querySelector(".video-title");
-    if (titleEl) titleEl.innerText = data.title;
-  }
-
-  if (data.stage === "starting") {
-    status.innerHTML = `
-      Preparando download...<br>
-      ${data.speed || "Conectando..."} • ETA ${data.eta || "--"}
-    `;
-    bar.style.width = "0%";
-    actions.innerHTML = "";
-  }
-
-  if (data.stage === "downloading") {
-    status.innerHTML = `
-      Baixando... ${data.percent || 0}%<br>
-      ${data.speed || "0MiB/s"} • ETA ${data.eta || "--"}
-    `;
-    bar.style.width = `${Math.max(0, Math.min(100, data.percent || 0))}%`;
-    actions.innerHTML = "";
-  }
-
-  if (data.stage === "merging") {
-    status.innerHTML = `
-      Mesclando formatos...<br>
-      ${data.percent || 0}% concluído • ETA ${data.eta || "--"}
-    `;
-    bar.style.width = `${Math.max(0, Math.min(100, data.percent || 0))}%`;
-    actions.innerHTML = "";
-  }
-
-  if (data.stage === "finished") {
-    status.innerHTML = `
-      <span class="done">Conversão finalizada com sucesso</span>
-    `;
-    bar.style.width = "100%";
-
-    actions.innerHTML = `
-      <button class="download-btn" type="button">Baixar MP4</button>
-    `;
-
-    const btn = actions.querySelector("button");
-    if (btn) {
-      btn.onclick = () => {
-        const a = document.createElement("a");
-        a.href = data.download || `/download/${data.id}.mp4`;
-        a.download = "";
-        a.target = "_blank";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+    function persist(job) {
+      if (!job || !job.id) return;
+      const prev = store[job.id] || {};
+      store[job.id] = {
+        ...prev,
+        ...job,
+        startedAt: prev.startedAt || job.startedAt || Date.now(),
+        updatedAt: Date.now()
       };
+      saveStore();
+      refreshBusy();
     }
-  }
 
-  if (data.stage === "error") {
-    status.innerHTML = `
-      <span class="error">${data.error || data.message || "Erro ao processar vídeo"}</span>
-    `;
-    actions.innerHTML = "";
-  }
-}
+    function getCard(jobId) {
+      if (cards[jobId]) return cards[jobId];
 
-function bootstrap() {
-  const jobs = Object.values(store).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
-
-  jobs.forEach((job) => {
-    const card = createOrGetCard(job);
-    updateCard(card, job);
-
-    if (!["finished", "error"].includes(job.stage)) {
-      startPolling(job.id);
+      const el = document.createElement("div");
+      el.className = "download-item";
+      el.dataset.jobId = jobId;
+      el.innerHTML = `
+        <div class="thumb">
+          <img alt="">
+        </div>
+        <div class="download-content">
+          <div class="badge">H264</div>
+          <div class="video-title">Preparando download...</div>
+          <div class="status-text"></div>
+          <div class="progress-wrap"><div class="progress-bar"></div></div>
+          <div class="download-actions"></div>
+        </div>
+      `;
+      downloadsRoot.prepend(el);
+      cards[jobId] = el;
+      return el;
     }
-  });
 
-  refreshBusyState();
-}
+    function setCardData(job) {
+      const el = getCard(job.id);
+      const titleEl = el.querySelector(".video-title");
+      const img = el.querySelector("img");
+      const statusEl = el.querySelector(".status-text");
+      const bar = el.querySelector(".progress-bar");
+      const actions = el.querySelector(".download-actions");
 
-bootstrap();
-</script>
+      if (job.title) titleEl.textContent = job.title;
+      if (job.thumbnail) img.src = job.thumbnail;
+
+      const progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
+
+      if (job.stage === "starting") {
+        statusEl.innerHTML = `
+          Preparando download...<br>
+          ${job.speed || "Conectando..."} • ETA ${job.eta || "--"}
+        `;
+        bar.style.width = "0%";
+        actions.innerHTML = "";
+      }
+
+      if (job.stage === "downloading") {
+        statusEl.innerHTML = `
+          Baixando... ${progress}%<br>
+          ${job.speed || "0MiB/s"} • ETA ${job.eta || "--"}
+        `;
+        bar.style.width = `${progress}%`;
+        actions.innerHTML = "";
+      }
+
+      if (job.stage === "processing") {
+        statusEl.innerHTML = `
+          Mesclando formatos...<br>
+          ${progress}% concluído • ETA ${job.eta || "--"}
+        `;
+        bar.style.width = `${progress}%`;
+        actions.innerHTML = "";
+      }
+
+      if (job.stage === "finished" || job.done) {
+        statusEl.innerHTML = `<span class="done">Concluído</span>`;
+        bar.style.width = "100%";
+        actions.innerHTML = `
+          <a class="download-btn" href="${job.file || `/api/file/${job.id}`}" download>
+            Baixar MP4
+          </a>
+        `;
+      }
+
+      if (job.stage === "error" || job.error) {
+        statusEl.innerHTML = `<span class="error">${job.error || "Erro ao processar vídeo"}</span>`;
+        actions.innerHTML = "";
+      }
+    }
+
+    function stopPoll(jobId) {
+      if (pollers[jobId]) {
+        clearInterval(pollers[jobId]);
+        delete pollers[jobId];
+      }
+    }
+
+    async function pollJob(jobId) {
+      try {
+        const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, {
+          cache: "no-store"
+        });
+
+        if (!res.ok) {
+          const job = store[jobId];
+          if (job && !["finished", "error"].includes(job.stage)) {
+            job.stage = "error";
+            job.error = "Job não encontrado";
+            setCardData(job);
+            persist(job);
+          }
+          stopPoll(jobId);
+          return;
+        }
+
+        const data = await res.json();
+
+        const merged = {
+          ...(store[jobId] || {}),
+          ...data
+        };
+
+        setCardData(merged);
+        persist(merged);
+
+        if (data.stage === "finished" || data.done || data.error) {
+          stopPoll(jobId);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function startPoll(jobId) {
+      stopPoll(jobId);
+      pollJob(jobId);
+      pollers[jobId] = setInterval(() => pollJob(jobId), 1000);
+    }
+
+    async function startDownload() {
+      if (busy) return;
+
+      const url = document.getElementById("url").value.trim();
+      const quality = document.getElementById("quality").value;
+
+      if (!url) {
+        alert("Cole um link");
+        return;
+      }
+
+      const clientId = uuidLike();
+
+      const job = {
+        id: clientId,
+        title: "Preparando download...",
+        thumbnail: "",
+        stage: "starting",
+        status: "Preparando download...",
+        progress: 0,
+        speed: "Conectando...",
+        eta: "--",
+        done: false,
+        file: "",
+        error: "",
+        startedAt: Date.now(),
+      };
+
+      persist(job);
+      setCardData(job);
+
+      try {
+        const res = await fetch("/api/download", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            url,
+            quality,
+            clientId
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          job.stage = "error";
+          job.error = data.error || "Erro ao iniciar download";
+          setCardData(job);
+          persist(job);
+          return;
+        }
+
+        const jobId = data.jobId || clientId;
+        job.id = jobId;
+        persist(job);
+        setCardData(job);
+        startPoll(jobId);
+      } catch (err) {
+        console.error(err);
+        job.stage = "error";
+        job.error = "Erro ao iniciar download";
+        setCardData(job);
+        persist(job);
+      }
+    }
+
+    function bootstrap() {
+      downloadsRoot.innerHTML = "";
+      const jobs = Object.values(store).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+
+      for (const job of jobs) {
+        setCardData(job);
+        if (!["finished", "error"].includes(job.stage)) {
+          startPoll(job.id);
+        }
+      }
+
+      refreshBusy();
+    }
+
+    bootstrap();
+  </script>
 </body>
 </html>
