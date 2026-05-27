@@ -3,7 +3,6 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
-const { spawn } = require("child_process");
 const compression = require("compression");
 const { Server } = require("socket.io");
 const YTDlpWrap = require("yt-dlp-wrap").default;
@@ -20,7 +19,6 @@ const ytDlp = new YTDlpWrap();
 
 const downloadsDir = path.join(__dirname, "downloads");
 const jobs = Object.create(null);
-
 let busy = false;
 
 function ensureDownloadsDir() {
@@ -34,9 +32,7 @@ ensureDownloadsDir();
 app.use(
   compression({
     filter: (req, res) => {
-      if (req.path.startsWith("/downloads/")) {
-        return false;
-      }
+      if (req.path.startsWith("/downloads/")) return false;
       return compression.filter(req, res);
     }
   })
@@ -65,6 +61,16 @@ app.get("/", (req, res) => {
 
 app.get("/health", (req, res) => {
   res.json({ status: "online" });
+});
+
+app.get("/download/:file", (req, res) => {
+  const filePath = path.join(downloadsDir, req.params.file);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Arquivo não encontrado");
+  }
+
+  return res.download(filePath);
 });
 
 function sleep(ms) {
@@ -171,15 +177,12 @@ function setJob(id, patch) {
   return job;
 }
 
-async function waitForMergedFile(id, job, timeout = 60000) {
-  const start = Date.now();
-  const expectedMs = 5000;
+async function waitForMergedFile(id, timeout = 60000) {
+  const deadline = Date.now() + timeout;
 
-  while (Date.now() - start < timeout) {
+  while (Date.now() < deadline) {
     const exact = path.join(downloadsDir, `${id}.source.mp4`);
-    if (fs.existsSync(exact)) {
-      return exact;
-    }
+    if (fs.existsSync(exact)) return exact;
 
     const candidates = fs
       .readdirSync(downloadsDir)
@@ -188,14 +191,12 @@ async function waitForMergedFile(id, job, timeout = 60000) {
 
     if (candidates.length > 0) {
       const candidatePath = path.join(downloadsDir, candidates[0]);
-      if (fs.existsSync(candidatePath)) {
-        return candidatePath;
-      }
+      if (fs.existsSync(candidatePath)) return candidatePath;
     }
 
-    const elapsed = Date.now() - start;
-    const percent = Math.min(99, Math.max(0, Math.round((elapsed / expectedMs) * 100)));
-    const etaSeconds = Math.max(0, (expectedMs - elapsed) / 1000);
+    const elapsed = timeout - (deadline - Date.now());
+    const percent = Math.min(99, Math.max(0, Math.round((elapsed / timeout) * 100)));
+    const etaSeconds = Math.max(0, (deadline - Date.now()) / 1000);
 
     setJob(id, {
       stage: "merging",
@@ -231,10 +232,7 @@ async function processDownload(job) {
         ? info.thumbnails[info.thumbnails.length - 1].url
         : "");
 
-    setJob(id, {
-      title,
-      thumbnail
-    });
+    setJob(id, { title, thumbnail });
 
     const safeQuality = String(quality || "1080").replace(/\D/g, "") || "1080";
     const outputTemplate = path.join(downloadsDir, `${id}.source.%(ext)s`);
@@ -263,6 +261,7 @@ async function processDownload(job) {
       console.log(text);
 
       const parsed = parseProgressLine(text);
+
       if (parsed) {
         const etaSeconds = parseEtaToSeconds(parsed.eta);
 
@@ -295,7 +294,7 @@ async function processDownload(job) {
 
     await yt.promise;
 
-    const mergedPath = await waitForMergedFile(id, job);
+    const mergedPath = await waitForMergedFile(id);
 
     safeRemove(finalPath);
     fs.renameSync(mergedPath, finalPath);
@@ -364,24 +363,19 @@ app.get("/api/status/:id", (req, res) => {
 
 app.post("/api/download", async (req, res) => {
   if (busy) {
-    return res.status(429).json({
-      error: "Servidor ocupado"
-    });
+    return res.status(429).json({ error: "Servidor ocupado" });
   }
 
   const { url, quality, clientId } = req.body || {};
 
   if (!url) {
-    return res.status(400).json({
-      error: "URL inválida"
-    });
+    return res.status(400).json({ error: "URL inválida" });
   }
 
   const id = String(clientId || `job_${Date.now()}`);
+
   if (jobs[id]) {
-    return res.status(409).json({
-      error: "Já existe um job com esse id"
-    });
+    return res.status(409).json({ error: "Já existe um job com esse id" });
   }
 
   busy = true;
